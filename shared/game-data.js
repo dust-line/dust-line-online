@@ -1,7 +1,7 @@
 // Общие данные и правила «Пыльного рубежа онлайн»: этот файл используют и сервер, и браузер.
 (function(G){
 'use strict';
-const C={DRONE_TIME:8,DRONE_RANGE:16,DRONE_DIST:12,DRONE_ALT:2.6,DROP_OPEN:1.5,DROP_DELAY:25,DROP_FFA:75,HOLO_TIME:8,DASH_CD:5,PLANT_TIME:3.2,DEFUSE_TIME:5,BOMB_TIME:40,ROUND_TIME:115,FREEZE_TIME:4,BUY_TIME:20,POST_TIME:5,MATCH_END_TIME:9,MATCH_WIN:7,EYE:1.7,
+const C={HOSTAGE_TIME:150,RESCUE_HOLD:1.2,RESCUE_MONEY:1000,DRONE_TIME:8,DRONE_RANGE:16,DRONE_DIST:12,DRONE_ALT:2.6,DROP_OPEN:1.5,DROP_DELAY:25,DROP_FFA:75,HOLO_TIME:8,DASH_CD:5,PLANT_TIME:3.2,DEFUSE_TIME:5,BOMB_TIME:40,ROUND_TIME:115,FREEZE_TIME:4,BUY_TIME:20,POST_TIME:5,MATCH_END_TIME:9,MATCH_WIN:7,EYE:1.7,
   FFA_KILLS:30,FFA_TIME:600,RESPAWN:3,MAX_BOMB:10,MAX_FFA:12,MAX_TEAM:5,NADE_R:7.5,BOMB_R:22,NR:0.11,
   START_MONEY:800,MAX_MONEY:16000,WIN_MONEY:3250,LOSS_MONEY:1400,LOSS_STEP:500,PLANT_MONEY:300};
 
@@ -109,6 +109,33 @@ const MAPS={
       a.sign('КИНО','#b06bff',-23.9,5,-4,Math.PI/2,5); a.sign('БАР','#6bff8a',23.9,5,-4,-Math.PI/2,4);
       a.lamp(-12,-12,0x9fc4ff); a.lamp(12,-12,0x9fc4ff); a.lamp(0,10,0x9fc4ff); a.lamp(-17,-31,0xffb36b); a.lamp(30,-25,0xffb36b); a.lamp(-12,26,0x9fc4ff);
       a.site('A',-24,-26); a.site('B',24,-26);
+    }},
+  embassy:{name:'Посольство',ground:'concrete',fog:0xcfd3d6,sky:['#6f9cc9','#b9cee0','#e4e8ea'],sites:null,
+    spawn:{T:{x:0,z:-24},CT:{x:0,z:34}},rescue:{x:0,z:33,r:6},
+    hostages:[[-20,-25],[-16.5,-26],[20,-25],[16.5,-26]],
+    spawns:[[0,-24],[-20,-22],[20,-22],[0,0],[-18,4],[18,4],[-33,-20],[33,-20],[0,-36],[0,34],[-25,26],[25,26]],
+    build(a){
+      a.box(0,-41,84,2,6,'brick'); a.box(0,41,84,2,6,'brick'); a.box(-41,0,2,84,6,'brick'); a.box(41,0,2,84,6,'brick');
+      // the building: back door, front entrance and side doors
+      a.box(-14,-30,24,1,6,'brick'); a.box(14,-30,24,1,6,'brick');
+      a.box(-14.5,10,23,1,6,'brick'); a.box(14.5,10,23,1,6,'brick');
+      a.box(-26,-21,1,18,6,'brick'); a.box(-26,1,1,18,6,'brick'); a.box(26,-21,1,18,6,'brick'); a.box(26,1,1,18,6,'brick');
+      // hostage rooms A (west) and B (east)
+      a.box(-10,-26.5,0.6,7,5,'wall'); a.box(-10,-17.5,0.6,3,5,'wall'); a.box(-23,-16,6,0.6,5,'wall'); a.box(-13,-16,6,0.6,5,'wall');
+      a.box(10,-26.5,0.6,7,5,'wall'); a.box(10,-17.5,0.6,3,5,'wall'); a.box(23,-16,6,0.6,5,'wall'); a.box(13,-16,6,0.6,5,'wall');
+      a.box(-6.5,-16,7,0.6,5,'wall'); a.box(6.5,-16,7,0.6,5,'wall');
+      a.crate(-23,-20); a.crate(23,-20); a.box(-13,-28,3,1.5,1,'crate'); a.box(13,-28,3,1.5,1,'crate'); a.crate(-5,-26); a.crate(5,-22,true);
+      // lobby
+      for(const [x,z] of [[-12,-6],[12,-6],[-12,4],[12,4]]) a.box(x,z,1.2,1.2,6,'stone');
+      a.box(0,-4,8,1.5,1.1,'wall'); a.box(-20,0,3,1.2,1,'crate'); a.box(20,0,3,1.2,1,'crate'); a.box(-5,6,1.4,1.4,1.2,'stone'); a.box(5,6,1.4,1.4,1.2,'stone');
+      a.box(-20,-9,1.2,4,1.1,'crate'); a.box(20,-9,1.2,4,1.1,'crate');
+      // courtyard in front (special forces side)
+      a.box(-10,20,4,1,1.1,'stone'); a.box(10,20,4,1,1.1,'stone'); a.box(0,16,4,1,1.1,'stone');
+      a.car(-20,24,true,'car_white'); a.car(22,22,false,'car_blue'); a.car(-6,27,true,'car_red');
+      a.box(-30,30,4,4,3,'brick'); a.box(30,30,4,4,3,'brick'); a.crate(-34,14); a.crate(34,14,true); a.crate(-34,-36); a.crate(34,-36);
+      // back alley
+      a.crate(-8,-36,true); a.crate(10,-35); a.box(0,-38,6,1,1.1,'stone');
+      a.decor('rescue',0,33,6); a.sign('ПОСОЛЬСТВО','#ffd84a',0,7.6,10.6,0,9);
     }}};
 for(const k in MAPS){ const m=MAPS[k]; m.ffa=m.spawns.concat(m.spawns.map(([x,z])=>[x,-z])); }
 

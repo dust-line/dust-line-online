@@ -43,7 +43,7 @@ class Room{
     this.phase=mode==='ffa'?'live':'wait'; this.timer=mode==='ffa'?C.FFA_TIME:0; this.startT=3; this.buyUntil=0;
     this.round=0; this.score={CT:0,T:0}; this.lossStreak={CT:0,T:0}; this.matchOver=false; this.snapAcc=0;
     this.bomb={s:'none',x:0,z:0,timer:0,site:null,carrier:null};
-    this.drop={s:'none',x:0,z:0,h:0,t:0}; this.dropAt=mode==='ffa'?Date.now()+45000:0; this.holos=[]; this.drones=[];
+    this.drop={s:'none',x:0,z:0,h:0,t:0}; this.hostages=[]; this.dropAt=mode==='ffa'?Date.now()+45000:0; this.holos=[]; this.drones=[];
   }
   send(p,o){ if(p.ws.readyState===1) p.ws.send(JSON.stringify(o)); }
   broadcast(o,except){ const s=JSON.stringify(o); for(const p of this.players.values()) if(p!==except&&p.ws.readyState===1) p.ws.send(s); }
@@ -52,7 +52,8 @@ class Room{
   pickTeam(pref){ const n=this.teamCount(), other=t=>t==='CT'?'T':'CT';
     if((pref==='CT'||pref==='T')&&n[pref]<C.MAX_TEAM&&n[pref]<=n[other(pref)]) return pref;
     return n.CT<=n.T?'CT':'T'; }
-  sendInv(p){ this.send(p,{t:'inv',money:this.mode==='bomb'?p.money:0,primary:p.inv.primary,secondary:p.inv.secondary,armor:Math.round(p.inv.armor),kit:p.inv.kit,nades:p.inv.nades,drone:p.inv.drone||0,free:this.mode!=='bomb'}); }
+  sendInv(p){ this.send(p,{t:'inv',money:this.eco()?p.money:0,primary:p.inv.primary,secondary:p.inv.secondary,armor:Math.round(p.inv.armor),kit:p.inv.kit,nades:p.inv.nades,drone:p.inv.drone||0,free:!this.eco()}); }
+  eco(){ return this.mode==='bomb'||this.mode==='hostage'; }
   canBuy(p){ return p.alive&&(this.mode==='ffa'||(this.phase==='freeze'||this.phase==='wait'||(this.phase==='live'&&Date.now()<this.buyUntil))); }
 
   add(ws,name,pref){
@@ -104,7 +105,7 @@ class Room{
   kill(v,att,head,how,wIdx){
     v.alive=false; v.hp=0; v.deaths++; v.useP=0; v.dropP=0; v.using=false; if(v.inv.primary===14) v.inv.primary=null;
     if(att&&att!==v){ att.kills++;
-      if(this.mode==='bomb'){ const rw=how==='граната'?300:how==='гранатомёт'?200:how==='нож'?1500:(WEAPONS[wIdx]?WEAPONS[wIdx].reward:300);
+      if(this.eco()){ const rw=how==='граната'?300:how==='гранатомёт'?200:how==='нож'?1500:(WEAPONS[wIdx]?WEAPONS[wIdx].reward:300);
         att.money=Math.min(C.MAX_MONEY,att.money+rw); this.sendInv(att); this.send(att,{t:'money',add:rw}); } }
     if(this.bomb.s==='carried'&&this.bomb.carrier===v.id) this.dropBomb(v);
     if(this.mode==='ffa'||this.phase==='wait') v.respawnT=C.RESPAWN;
@@ -139,6 +140,12 @@ class Room{
     this.buyUntil=Date.now()+C.BUY_TIME*1000; this.drop.s='none'; this.holos=[]; this.drones=[]; this.dropAt=Date.now()+(C.FREEZE_TIME+C.DROP_DELAY)*1000;
     const b=this.bomb; Object.assign(b,{s:'none',x:0,z:0,timer:0,site:null,carrier:null});
     const idx={CT:0,T:0}, ts=[];
+    if(this.mode==='hostage'){
+      this.resetHostages(); b.s='none';
+      for(const p of shuffle([...this.players.values()])){ if(!p.survived) p.inv=freshInv(); p.inv.kit=false; this.spawn(p,idx[p.team]++); }
+      for(const p of this.players.values())
+        this.send(p,{t:'round',title:'Раунд '+this.round,sub:(p.team==='CT'?'Освободите заложников и выведите их к зелёной зоне «Выход»':'Не дайте увести заложников и удержите здание')+' · B — магазин'});
+      return; }
     if(this.mode==='retake'){
       // the bomb is already planted on a random site; terrorists start around it
       const key=Math.random()<.5?'A':'B', st=MAPS[this.map].sites[key], bp={x:st.x+rand(-1.5,1.5),z:st.z+rand(-1.5,1.5)};
@@ -167,12 +174,12 @@ class Room{
     const lossMoney=C.LOSS_MONEY+C.LOSS_STEP*Math.min(this.lossStreak[loser],4);
     this.lossStreak[loser]++; this.lossStreak[winner]=0;
     for(const p of this.players.values()){ p.using=false; p.survived=p.alive;
-      const add=this.mode==='bomb'?(p.team===winner?C.WIN_MONEY:lossMoney):0; p.money=Math.min(C.MAX_MONEY,p.money+add); this.sendInv(p);
+      const add=this.eco()?(p.team===winner?C.WIN_MONEY:lossMoney):0; p.money=Math.min(C.MAX_MONEY,p.money+add); this.sendInv(p);
       this.send(p,{t:'round',title:p.team===winner?'Раунд за нами':'Раунд проигран',sub:(winner==='CT'?'Победа спецназа':'Победа террористов')+' — '+reason+(add?' · +$'+add:''),win:p.team===winner}); }
     if(this.score[winner]>=C.MATCH_WIN) this.matchOver=true;
   }
   toWait(){
-    this.phase='wait'; this.startT=3; this.nades=[]; this.rockets=[]; this.drop.s='none'; this.dropAt=0; this.holos=[]; this.drones=[]; Object.assign(this.bomb,{s:'none',carrier:null,site:null,timer:0});
+    this.phase='wait'; this.startT=3; this.nades=[]; this.rockets=[]; this.hostages=[]; this.drop.s='none'; this.dropAt=0; this.holos=[]; this.drones=[]; Object.assign(this.bomb,{s:'none',carrier:null,site:null,timer:0});
     this.broadcast({t:'round',title:'Ожидание игроков',sub:'Нужен хотя бы один игрок в каждой команде. Пока можно потренироваться'});
     for(const p of this.players.values()) if(!p.alive) this.spawn(p,this.teamIndex(p));
   }
@@ -238,11 +245,11 @@ class Room{
         if(it.startsWith('w:')){ const wi=Number(it.slice(2)), W=WEAPONS[wi]; if(!W||W.knife||W.special||wi===1) return; price=W.price;
           if(inv.primary===wi||inv.secondary===wi) ok=false; }
         else if(it==='armor'){ price=GEAR.armor; if(inv.armor>=100) ok=false; }
-        else if(it==='kit'){ price=GEAR.kit; if(inv.kit||this.mode==='ffa'||p.team!=='CT') ok=false; }
+        else if(it==='kit'){ price=GEAR.kit; if(inv.kit||this.mode==='ffa'||this.mode==='hostage'||p.team!=='CT') ok=false; }
         else if(it==='drone'){ price=GEAR.drone; if(inv.drone>=1) ok=false; }
         else if(it in NADE_MAX){ price=GEAR[it]; if(inv.nades[it]>=NADE_MAX[it]) ok=false; }
         else return;
-        if(this.mode!=='bomb') price=0;
+        if(!this.eco()) price=0;
         if(!ok||p.money<price) return this.send(p,{t:'buyfail'});
         p.money-=price;
         if(it.startsWith('w:')){ const wi=Number(it.slice(2)); if(WEAPONS[wi].slot==='s') inv.secondary=wi; else inv.primary=wi; this.send(p,{t:'bought',w:wi}); }
@@ -311,6 +318,27 @@ class Room{
       d.scan-=dt; if(d.scan<=0){ d.scan=0.25; const owner=this.players.get(d.owner); d.spotted=[];
         for(const p of this.players.values()){ if(!p.alive||p.id===d.owner) continue; if(this.mode==='ffa'?false:p.team===d.team) continue;
           if(Math.hypot(p.x-d.x,p.z-d.z)>C.DRONE_RANGE) continue; if(GD.segBlocked(d.x,d.y,d.z,p.x,p.y+1.5,p.z,this.boxes)) continue; d.spotted.push(p.id); } } } }
+  // hostages: special forces lead them out to the rescue zone
+  resetHostages(){ const H=MAPS[this.map].hostages||[]; this.hostages=H.map(([x,z],i)=>({id:i+1,x,z,yaw:0,state:0,by:0})); }
+  tickHostage(dt){
+    const R=MAPS[this.map].rescue;
+    for(const p of this.players.values()){ let ok=false;
+      if(p.alive&&p.team==='CT'&&p.using&&p.sp<1.5){ const h=this.hostages.find(h=>h.state===0&&Math.hypot(h.x-p.x,h.z-p.z)<1.9);
+        if(h){ ok=true; p.useP+=dt; if(p.useP>=C.RESCUE_HOLD){ p.useP=0; h.state=1; h.by=p.id; this.send(p,{t:'msg',text:'Заложник идёт за тобой — веди его к зелёной зоне'}); } } }
+      if(!ok) p.useP=0; }
+    for(const h of this.hostages){ if(h.state!==1) continue; const f=this.players.get(h.by);
+      if(!f||!f.alive){ h.state=0; h.by=0; continue; }
+      const dx=f.x-h.x, dz=f.z-h.z, d=Math.hypot(dx,dz); h.yaw=Math.atan2(-dx,-dz);
+      if(d>1.6){ const st=Math.min(d-1.6,6.8*dt); const q={x:h.x+dx/d*st,z:h.z+dz/d*st}; GD.collide(q,0.35,this.solids);
+        for(const o of this.hostages) if(o!==h&&o.state!==2){ const ex=q.x-o.x, ez=q.z-o.z, e=Math.hypot(ex,ez); if(e<0.7&&e>0.001){ q.x=o.x+ex/e*0.7; q.z=o.z+ez/e*0.7; } }
+        h.x=q.x; h.z=q.z; if(d>9){ h.x=f.x-dx/d*1.6; h.z=f.z-dz/d*1.6; } }
+      if(R&&Math.hypot(h.x-R.x,h.z-R.z)<R.r){ h.state=2; f.money=Math.min(C.MAX_MONEY,f.money+C.RESCUE_MONEY); this.sendInv(f); this.send(f,{t:'money',add:C.RESCUE_MONEY});
+        const left=this.hostages.filter(o=>o.state!==2).length; this.broadcast({t:'hostage',ev:'rescued',name:f.name,left}); } }
+    const ctA=this.aliveCount('CT'), tA=this.aliveCount('T');
+    if(this.hostages.length&&this.hostages.every(h=>h.state===2)) return this.endRound('CT','все заложники спасены');
+    if(tA===0) return this.endRound('CT','террористы уничтожены');
+    if(ctA===0) return this.endRound('T','спецназ уничтожен');
+    this.timer-=dt; if(this.timer<=0) this.endRound('T','время вышло'); }
   tickHolos(dt){ for(let i=this.holos.length-1;i>=0;i--){ const h=this.holos[i]; h.t-=dt; if(h.t<=0){ this.holos.splice(i,1); this.broadcast({t:'holo',ev:'pop',id:h.id,x:r2(h.x),z:r2(h.z)}); } } }
   nadeBoom(n){
     const o=n.p; o.y=Math.max(o.y,0.35);
@@ -340,7 +368,7 @@ class Room{
         for(const p of this.players.values()) if(!p.alive){ p.respawnT-=dt; if(p.respawnT<=0) this.spawn(p,this.teamIndex(p)); }
         if(n.CT>0&&n.T>0){ this.startT-=dt; if(this.startT<=0){ this.broadcast({t:'msg',text:'Матч начинается!'}); this.startMatch(); } } else this.startT=3;
         return;
-      case 'freeze': this.timer-=dt; if(this.timer<=0){ this.phase='live'; this.timer=C.ROUND_TIME; } return;
+      case 'freeze': this.timer-=dt; if(this.timer<=0){ this.phase='live'; this.timer=this.mode==='hostage'?C.HOSTAGE_TIME:C.ROUND_TIME; } return;
       case 'post':
         this.timer-=dt;
         if(this.timer<=0){
@@ -349,7 +377,7 @@ class Room{
           else this.startRound(); }
         return;
       case 'matchend': this.timer-=dt; if(this.timer<=0) this.startMatch(); return;
-      case 'live': this.tickLive(dt); return;
+      case 'live': if(this.mode==='hostage') this.tickHostage(dt); else this.tickLive(dt); return;
     }
   }
   tickLive(dt){
@@ -375,7 +403,7 @@ class Room{
     const b=this.bomb;
     this.broadcast({t:'snap',ps,b:{s:b.s,x:r2(b.x),z:r2(b.z),tm:r2(b.timer),site:b.site,c:b.carrier},
       r:{ph:this.phase,tm:r2(this.timer),n:this.round,ct:this.score.CT,tt:this.score.T,mode:this.mode,buy:r2(Math.max(0,(this.buyUntil-Date.now())/1000))},
-      d:{s:this.drop.s,x:r2(this.drop.x),z:r2(this.drop.z),h:r2(this.drop.h)},hs:this.holos.map(h=>[h.id,r2(h.x),r2(h.z),r3(h.yaw),h.team,h.owner]),ds:this.drones.map(d=>[d.id,r2(d.x),r2(d.y),r2(d.z),d.team,d.owner,d.spotted])});
+      d:{s:this.drop.s,x:r2(this.drop.x),z:r2(this.drop.z),h:r2(this.drop.h)},hg:(this.hostages||[]).map(h=>[h.id,r2(h.x),r2(h.z),h.state,r3(h.yaw),h.by]),hs:this.holos.map(h=>[h.id,r2(h.x),r2(h.z),r3(h.yaw),h.team,h.owner]),ds:this.drones.map(d=>[d.id,r2(d.x),r2(d.y),r2(d.z),d.team,d.owner,d.spotted])});
   }
 }
 
@@ -390,7 +418,8 @@ wss.on('connection',ws=>{
     if(m.t==='join'){
       if(p) return;
       const code=cleanCode(m.room); let r=rooms.get(code);
-      if(!r){ const mode=['ffa','retake'].includes(m.mode)?m.mode:'bomb'; let map=MAPS[m.map]?m.map:'port'; if(mode!=='ffa'&&!MAPS[map].sites) map='port';
+      if(!r){ const mode=['ffa','retake','hostage'].includes(m.mode)?m.mode:'bomb'; let map=MAPS[m.map]?m.map:'port';
+        if(mode==='hostage') map='embassy'; else if(mode!=='ffa'&&!MAPS[map].sites) map='port';
         r=new Room(code,mode,map); rooms.set(code,r); }
       if(r.players.size>=r.max){ ws.send(JSON.stringify({t:'error',text:'Комната «'+code+'» заполнена'})); return; }
       room=r; p=r.add(ws,cleanName(m.name),m.team); return; }

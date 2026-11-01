@@ -335,14 +335,14 @@ body.touch #boardBtn{display:block}
         <label class="label" for="roomCode">Комната</label>
         <input class="inp" id="roomCode" maxlength="16" autocomplete="off" placeholder="main">
         <div class="label">Режим новой комнаты</div>
-        <div class="row"><button class="seg" data-mode="bomb">Обычный (бомба)</button><button class="seg" data-mode="retake">Зачистка</button><button class="seg" data-mode="ffa">Бой насмерть</button></div>
+        <div class="row"><button class="seg" data-mode="bomb">Обычный (бомба)</button><button class="seg" data-mode="retake">Зачистка</button><button class="seg" data-mode="hostage">Заложники</button><button class="seg" data-mode="ffa">Бой насмерть</button></div>
         <p class="modedesc" id="modeDesc"></p>
         <div class="label">Карта новой комнаты</div>
         <div class="row" id="mapRow">
           <button class="seg" data-map="port">Порт</button><button class="seg" data-map="winter">Зимовье</button><button class="seg" data-map="factory">Завод</button>
-          <button class="seg" data-map="city">Ночной город</button><button class="seg" data-map="dust">Пыльный рубеж</button>
+          <button class="seg" data-map="city">Ночной город</button><button class="seg" data-map="dust">Пыльный рубеж</button><button class="seg" data-map="embassy">Посольство</button>
         </div>
-        <p class="modedesc">Режим и карту выбирает тот, кто первым создал комнату. Пыльный рубеж — только для боя насмерть.</p>
+        <p class="modedesc">Режим и карту выбирает тот, кто первым создал комнату. Пыльный рубеж — только для боя насмерть, Посольство — для заложников и боя насмерть.</p>
         <div id="teamBox"><div class="label">Команда</div>
           <div class="row"><button class="seg" data-team="auto">Любая</button><button class="seg" data-team="CT">Спецназ</button><button class="seg" data-team="T">Террористы</button></div></div>
       </div>
@@ -543,6 +543,10 @@ const HOOKS={
     else if(type==='fountain') visual(new THREE.Mesh(new THREE.CircleGeometry(1.3,16),new THREE.MeshBasicMaterial({color:0x5fb6ff})),a,1.22,b,-Math.PI/2);
     else if(type==='pipes'){ const pm=new THREE.MeshLambertMaterial({color:0x8a5a32});
       for(const [x,z,len,rot] of [[-39,0,78,0],[39,0,78,0],[0,-39,78,1]]){ const cy=new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.35,len,10),pm); cy.rotation.x=Math.PI/2; if(rot) cy.rotation.z=Math.PI/2; cy.position.set(x,4.6,z); mapGroup.add(cy); } }
+    else if(type==='rescue'){ const cv=document.createElement('canvas'); cv.width=cv.height=256; const g=cv.getContext('2d');
+      g.strokeStyle='rgba(110,255,140,.85)'; g.lineWidth=12; g.setLineDash([24,14]); g.beginPath(); g.arc(128,128,116,0,Math.PI*2); g.stroke();
+      g.fillStyle='rgba(110,255,140,.22)'; g.beginPath(); g.arc(128,128,110,0,Math.PI*2); g.fill(); g.fillStyle='rgba(110,255,140,.9)'; g.font='bold 56px sans-serif'; g.textAlign='center'; g.textBaseline='middle'; g.fillText('ВЫХОД',128,132);
+      const m=new THREE.Mesh(new THREE.PlaneGeometry(c*2,c*2),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(cv),transparent:true,depthWrite:false})); m.rotation.x=-Math.PI/2; m.position.set(a,0.04,b); mapGroup.add(m); }
     else if(type==='snow'){ const n=3500, pos=new Float32Array(n*3); for(let i=0;i<n;i++){ pos[i*3]=rand(-42,42); pos[i*3+1]=rand(0,26); pos[i*3+2]=rand(-42,42); }
       const geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
       snowPts=new THREE.Points(geo,new THREE.PointsMaterial({color:0xffffff,size:0.11,transparent:true,opacity:.85,depthWrite:false})); mapGroup.add(snowPts); } } };
@@ -837,7 +841,7 @@ const isFFA=()=>net.mode==='ffa';
 const timeLeft=()=>Math.max(0,srv.r.tm-(performance.now()-srv.rAt)/1000);
 const bombLeft=()=>Math.max(0,srv.b.tm-(performance.now()-srv.bAt)/1000);
 const buyLeft=()=>Math.max(0,srv.r.buy-(performance.now()-srv.rAt)/1000);
-const ui={canPlant:false,canDefuse:false,canOpen:false};
+const ui={canPlant:false,canDefuse:false,canOpen:false,canRescue:false};
 const ray=new THREE.Raycaster(); const tmpV=new THREE.Vector3(), vD=new THREE.Vector3();
 function look(dx,dy,k){ k*=camera.fov/BASE_FOV; P.yaw-=dx*k*settings.sens; P.pitch=clamp(P.pitch-dy*k*settings.sens,-1.5,1.5); swayX+=dx*0.0004; swayY+=dy*0.0004; }
 const isUnlocked=()=>true, lockText=()=>'', renderProfile=()=>{};
@@ -1017,6 +1021,7 @@ function onMsg(m){
       if(m.ev==='incoming'){ banner('Воздушный груз!','Внутри золотой АК — ищи световой столб и отметку на радаре',3.4); [0,140,280].forEach((d,i)=>setTimeout(()=>beep([520,660,880][i],0.18,0.1,'triangle'),d)); }
       else if(m.ev==='taken'){ feedLine([[m.name,isFFA()?'':m.team==='CT'?'ct':'tt'],['  забрал золотой АК','hs']],m.name===settings.name); }
       return;
+    case 'hostage': if(m.ev==='rescued'){ feedLine([[m.name+'  ','ct'],['вывел заложника'+(m.left?' · осталось '+m.left:''),'hs']],m.name===settings.name); [0,120].forEach((d,i)=>setTimeout(()=>beep([700,1050][i],0.15,0.09,'triangle'),d)); } return;
     case 'drone':
       if(m.ev==='up'){ beep(700,0.25,0.05,'sawtooth'); }
       else if(m.ev==='gone'){ const o=new THREE.Vector3(m.x,m.y,m.z); spark(o,m.by?0xffb347:0x9dff7a,m.by?14:6); if(m.by){ shotSound(0.3,1500,0.3); feedLine([[m.by+'  ',''],['сбил дрон','hs']],m.by===settings.name); } }
@@ -1025,7 +1030,7 @@ function onMsg(m){
       if(m.ev==='pop'&&m.by&&holoMap.has(m.id)&&holoMap.get(m.id).mine) toast(m.by+' раскусил твою голограмму'); return; }
   } }
 function onSnap(m){ const now=performance.now(), seen=new Set();
-  srv.r=m.r; srv.rAt=now; srv.b=m.b; srv.bAt=now; srv.d=m.d; syncHolos(m.hs||[]); syncDrones(m.ds||[]);
+  srv.r=m.r; srv.rAt=now; srv.b=m.b; srv.bAt=now; srv.d=m.d; syncHolos(m.hs||[]); syncDrones(m.ds||[]); syncHostages(m.hg||[]);
   for(const a of m.ps){ const [id,x,y,z,yaw,pitch,hp,alive,team,w,useP,name,kills,deaths,dropP]=a; seen.add(id);
     if(id===net.id){ const wasAlive=P.alive; P.hp=hp; if(team!==net.team) net.team=team;
       net.useP=useP; net.dropP=dropP||0; net.kills=kills; net.deaths=deaths; if(wasAlive&&!alive) localDown(); continue; }
@@ -1211,7 +1216,7 @@ function renderShop(){ $('shopMoney').textContent=net.free?'':'$'+net.money;
   for(const id of [4,5,9,0,6,12,11,2,7,13]) shopItem(g,WEAPONS[id].name,priceOf(PRICES[id]),GUN_DESC[id]+PIERCE_TXT(WEAPONS[id].pierce),inv.primary===id,'w:'+id,c=>drawGunShape(c,id,curSkin(id)));
   shopItem(ge,'Бронежилет'+(inv.armor>0&&inv.armor<100?' ('+inv.armor+')':''),priceOf(GD.GEAR.armor),'Пули наносят на 50% меньше урона',inv.armor>=100,'armor');
   shopItem(ge,'Дрон-разведчик',priceOf(GD.GEAR.drone),'Летит вперёд и 8 секунд подсвечивает врагов твоей команде',(inv.drone||0)>=1,'drone');
-  if(!isFFA()&&net.team==='CT') shopItem(ge,'Сапёрный набор',priceOf(GD.GEAR.kit),'Обезвреживание бомбы в 2 раза быстрее',inv.kit,'kit');
+  if(!isFFA()&&net.mode!=='hostage'&&net.team==='CT') shopItem(ge,'Сапёрный набор',priceOf(GD.GEAR.kit),'Обезвреживание бомбы в 2 раза быстрее',inv.kit,'kit');
   for(const k of ['he','smoke','flash','holo']) shopItem(n,{he:'Осколочная',smoke:'Дымовая',flash:'Световая',holo:'Голограмма'}[k]+' · '+(nades[k]||0)+'/'+GD.NADE_MAX[k],priceOf(GD.GEAR[k]),k==='holo'?'Фальшивый боец на 8 секунд — отвлекает врагов':GD.NADE_MAX[k]>1?'Можно купить 2':'Одна на раунд',nades[k]>=GD.NADE_MAX[k],k);
   $('shopHint').textContent=isFFA()?'В бою насмерть всё бесплатно и магазин работает всегда.':net.mode==='retake'?'В зачистке всё бесплатно, магазин открыт в начале раунда. Если выживешь, купленное останется.':'Деньги дают за убийства и раунды. Если выживешь, купленное останется на следующий раунд.'; }
 
@@ -1245,10 +1250,15 @@ function updateHUD(dt){
   else { const planted=b.s==='planted'; let mid;
     if(r.ph==='wait') mid='Ждём игроков'; else if(r.ph==='freeze') mid='Закупка '+Math.ceil(timeLeft()); else if(planted) mid='Бомба '+fmt(bombLeft()); else if(r.ph==='live') mid=fmt(timeLeft()); else mid='Раунд '+r.n;
     let ca=0,ta=0; for(const x of remotes.values()) if(x.alive){ if(x.team==='CT') ca++; else ta++; } if(P.alive){ if(net.team==='CT') ca++; else ta++; }
-    setText(tb1,'tb1','Спецназ '+r.ct); setText(tb2,'tb2',mid); setText(tb3,'tb3',r.tt+' Террористы'); setText(tb4,'tb4','Живы '+ca+' : '+ta);
+    setText(tb1,'tb1','Спецназ '+r.ct); setText(tb2,'tb2',mid); setText(tb3,'tb3',r.tt+' Террористы'); setText(tb4,'tb4','Живы '+ca+' : '+ta+(net.mode==='hostage'?' · Спасено '+[...hostMap.values()].filter(h=>h.state===2).length+'/'+hostMap.size:''));
     setClass(tb1,'1','ct'); setClass(tb2,'2',planted?'bomb':''); setClass(tb3,'3','tt'); setClass(tb4,'4',''); }
   let hint='', act=0, label='';
   if(P.alive&&ui.canOpen){ hint='Зажми '+(isTouch?'кнопку «держи»':'E')+', чтобы открыть воздушный груз — внутри золотой АК'; if(net.dropP>0){ act=net.dropP/C.DROP_OPEN; label='Открываем груз…'; } }
+  else if(net.mode==='hostage'&&P.alive&&r.ph==='live'){ const key=isTouch?'кнопку «держи»':'E', mine=[...hostMap.values()].filter(h=>h.state===1&&h.by===net.id).length;
+    if(ui.canRescue){ hint='Зажми '+key+', чтобы освободить заложника'; if(net.useP>0){ act=net.useP/C.RESCUE_HOLD; label='Освобождаем заложника…'; } }
+    else if(mine) hint='За тобой идёт заложников: '+mine+' — веди к зелёной зоне «Выход»';
+    else if(net.team==='CT') hint='Найди заложников в комнатах здания (жёлтые точки на радаре)';
+    else hint='Удержи здание и не дай увести заложников'; }
   else if(!isFFA()&&P.alive&&r.ph==='live'){ const key=isTouch?'кнопку «держи»':'E';
     if(ui.canPlant){ hint='Зажми '+key+', чтобы заложить бомбу'; if(net.useP>0){ act=net.useP/C.PLANT_TIME; label='Закладка бомбы…'; } }
     else if(ui.canDefuse){ hint='Зажми '+key+', чтобы обезвредить бомбу'; if(net.useP>0){ act=net.useP/(inv.kit?C.DEFUSE_TIME/2:C.DEFUSE_TIME); label='Обезвреживание…'; } }
@@ -1258,7 +1268,7 @@ function updateHUD(dt){
     else if(b.s==='planted'&&net.team==='T') hint='Охраняй бомбу на точке '+b.site; }
   if(!hint&&P.alive&&canBuy()&&!shopOpen&&!isFFA()) hint=(r.ph==='freeze'?'Старт через '+Math.ceil(timeLeft())+' · ':'')+(isTouch?'кнопка «магазин» — купить оружие':'B — магазин')+(r.ph==='live'?' · ещё '+Math.ceil(buyLeft())+' с':'');
   setText(elHint,'hint',hint); elAct.classList.toggle('show',act>0); elActFill.style.width=Math.min(100,act*100)+'%'; setText(elActLabel,'al',label);
-  bodyClass('can-use',ui.canPlant||ui.canDefuse||ui.canOpen); bodyClass('can-buy',canBuy());
+  bodyClass('can-use',ui.canPlant||ui.canDefuse||ui.canOpen||ui.canRescue); bodyClass('can-buy',canBuy());
   if(shopOpen) setText($('shopTime'),'st',(net.free?'всё бесплатно':'')+(!isFFA()&&r.ph==='live'?(net.free?' · ':'')+'ещё '+Math.ceil(buyLeft())+' с':''));
   let spTxt=''; if(!P.alive){ if(isFFA()||r.ph==='wait') spTxt='Возрождение через несколько секунд…'; else { const sb=spectTarget(); spTxt=sb?'Наблюдение: '+sb.name+(isTouch?' · коснись — следующий':' · клик — следующий'):'Ждём следующего раунда'; } }
   setText(elSpect,'sp',spTxt); bodyClass('dead-spec',!P.alive);
@@ -1300,6 +1310,8 @@ function drawRadar(){ const s=260,c=s/2,k=2.6; let ox=P.pos.x, oz=P.pos.z, a=P.y
   rc.restore();
   { const dr=srv.d; if(dr&&dr.s!=='none'){ rc.save(); rc.beginPath(); rc.arc(c,c,c-2,0,Math.PI*2); rc.clip(); const [x,y]=toR(dr.x,dr.z,true); rc.fillStyle=now%800<400?'#ffd84a':'#ffefa0';
       rc.beginPath(); rc.moveTo(x,y-10); rc.lineTo(x+9,y); rc.lineTo(x,y+10); rc.lineTo(x-9,y); rc.closePath(); rc.fill(); rc.restore(); }
+    const RZ=MAPS[net.map]&&MAPS[net.map].rescue; if(RZ&&net.mode==='hostage'){ rc.save(); rc.beginPath(); rc.arc(c,c,c-2,0,Math.PI*2); rc.clip(); const [x,y]=toR(RZ.x,RZ.z,true); rc.strokeStyle='#6eff8c'; rc.lineWidth=3; rc.beginPath(); rc.arc(x,y,RZ.r*k,0,Math.PI*2); rc.stroke(); rc.restore(); }
+    for(const h of hostMap.values()){ if(h.state===2) continue; rc.save(); rc.beginPath(); rc.arc(c,c,c-2,0,Math.PI*2); rc.clip(); const [x,y]=toR(h.x,h.z,true); rc.fillStyle=h.state===1?'#6eff8c':'#ffd84a'; rc.fillRect(x-5,y-5,10,10); rc.restore(); }
     for(const h of holoMap.values()){ if(h.mine||(!h.ally&&now-h.seenT>700)) continue; rc.save(); rc.beginPath(); rc.arc(c,c,c-2,0,Math.PI*2); rc.clip(); const [x,y]=toR(h.x,h.z,true);
       rc.fillStyle=h.ally?'rgba(111,232,255,.8)':'#ff4545'; rc.beginPath(); rc.arc(x,y,h.ally?5:7,0,Math.PI*2); rc.fill(); rc.restore(); } }
   if(P.alive){ rc.fillStyle='#ff7a1a'; rc.beginPath(); rc.moveTo(c,c-11); rc.lineTo(c+8,c+8); rc.lineTo(c,c+3); rc.lineTo(c-8,c+8); rc.closePath(); rc.fill(); } }
@@ -1310,6 +1322,8 @@ function updatePlayer(dt){
   ui.canPlant=false; ui.canDefuse=false; let using=false;
   const dr=srv.d; ui.canOpen=!!(dr&&dr.s==='landed'&&Math.hypot(dr.x-P.pos.x,dr.z-P.pos.z)<2.1);
   if(ui.canOpen) using=(!!keys.KeyE||T.useId!==null)&&P.onGround;
+  ui.canRescue=net.mode==='hostage'&&ph==='live'&&net.team==='CT'&&[...hostMap.values()].some(h=>h.state===0&&Math.hypot(h.x-P.pos.x,h.z-P.pos.z)<1.8);
+  if(ui.canRescue) using=using||((!!keys.KeyE||T.useId!==null)&&P.onGround);
   if(!isFFA()&&ph==='live'){
     ui.canPlant=b.s==='carried'&&b.c===net.id&&!!GD.siteAt(net.map,P.pos.x,P.pos.z,5);
     ui.canDefuse=b.s==='planted'&&net.team==='CT'&&Math.hypot(b.x-P.pos.x,b.z-P.pos.z)<1.7;
@@ -1388,21 +1402,22 @@ function updateSpectate(dt){ const r=spectTarget();
   camera.lookAt(r.x+fx_*6,r.y+1.4,r.z+fz*6); }
 
 /* ---------- menus ---------- */
-const MODE_NAME={bomb:'обычный режим',retake:'зачистка',ffa:'бой насмерть'};
-const MODE_DESC={retake:'Бомба уже заложена на случайной точке. Террористы появляются рядом и охраняют её, спецназ должен прорваться и обезвредить её за '+C.BOMB_TIME+' секунд. Магазин бесплатный, но работает только в начале раунда. Матч до '+C.MATCH_WIN+' побед.',
+const MODE_NAME={bomb:'обычный режим',retake:'зачистка',hostage:'заложники',ffa:'бой насмерть'};
+const MODE_DESC={hostage:'Карта «Посольство». Террористы захватили здание с 4 заложниками. Спецназ должен ворваться, подойти к заложнику и зажать E, чтобы он пошёл за тобой, и вывести его к зелёной зоне «Выход». Спецназ побеждает, если спас всех или убил всех террористов, террористы — если продержались 2,5 минуты или убили весь спецназ. В заложников нельзя попасть.',
+  retake:'Бомба уже заложена на случайной точке. Террористы появляются рядом и охраняют её, спецназ должен прорваться и обезвредить её за '+C.BOMB_TIME+' секунд. Магазин бесплатный, но работает только в начале раунда. Матч до '+C.MATCH_WIN+' побед.',
   bomb:'Спецназ против террористов, до 5 на 5. Бомба, точки A и B, магазин и деньги. Матч до '+C.MATCH_WIN+' побед. Нужен хотя бы один игрок в каждой команде.',
   ffa:'Каждый сам за себя, возрождение через '+C.RESPAWN+' секунды. Магазин всегда открыт, и всё бесплатно. Побеждает первый, кто наберёт '+C.FFA_KILLS+' убийств.'};
 function syncMenu(){
   document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===settings.mode)));
   document.querySelectorAll('[data-team]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.team===settings.team)));
-  if(settings.mode!=='ffa'&&!MAPS[settings.map].sites) settings.map='port';
-  document.querySelectorAll('[data-map]').forEach(b=>{ const bad=settings.mode!=='ffa'&&!MAPS[b.dataset.map].sites; b.classList.toggle('locked',bad); b.setAttribute('aria-pressed',String(b.dataset.map===settings.map)); b.title=bad?'Только для боя насмерть':''; });
+  if(settings.mode==='hostage') settings.map='embassy'; else if(settings.mode!=='ffa'&&!MAPS[settings.map].sites) settings.map='port';
+  document.querySelectorAll('[data-map]').forEach(b=>{ const bad=settings.mode==='hostage'?b.dataset.map!=='embassy':(settings.mode!=='ffa'&&!MAPS[b.dataset.map].sites); b.classList.toggle('locked',bad); b.setAttribute('aria-pressed',String(b.dataset.map===settings.map)); b.title=bad?(settings.mode==='hostage'?'Заложники играются только в Посольстве':'Не подходит для этого режима'):''; });
   $('modeDesc').textContent=MODE_DESC[settings.mode]; $('teamBox').classList.toggle('hidden',settings.mode==='ffa');
   $('sens').value=settings.sens; $('sensVal').textContent=Number(settings.sens).toFixed(1);
   if(state.mode==='menu') loadMap(settings.map); }
 document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>{ settings.mode=b.dataset.mode; store.set('mode',settings.mode); syncMenu(); }));
 document.querySelectorAll('[data-team]').forEach(b=>b.addEventListener('click',()=>{ settings.team=b.dataset.team; store.set('team',settings.team); syncMenu(); }));
-document.querySelectorAll('[data-map]').forEach(b=>b.addEventListener('click',()=>{ if(settings.mode!=='ffa'&&!MAPS[b.dataset.map].sites) return; settings.map=b.dataset.map; store.set('map',settings.map); syncMenu(); }));
+document.querySelectorAll('[data-map]').forEach(b=>b.addEventListener('click',()=>{ if(settings.mode==='hostage'||(settings.mode!=='ffa'&&!MAPS[b.dataset.map].sites)) return; settings.map=b.dataset.map; store.set('map',settings.map); syncMenu(); }));
 $('sens').addEventListener('input',()=>{ settings.sens=Number($('sens').value); store.set('sens',settings.sens); $('sensVal').textContent=settings.sens.toFixed(1); });
 $('nick').value=settings.name; $('roomCode').value=settings.room==='main'?'':settings.room;
 if(!MODE_DESC[settings.mode]) settings.mode='bomb'; if(!MAPS[settings.map]) settings.map='port';
@@ -1473,6 +1488,32 @@ function launchDrone(){ if(state.mode!=='play'||!P.alive||shopOpen) return;
   if(srv.r.ph==='freeze'){ toast('Подожди начала раунда'); return; }
   if(!(inv.drone>0)){ toast('Дрона нет — купи в магазине'); return; }
   send({t:'drone'}); kick=0.3; }
+const hostMap=new Map();
+const civTex=(()=>{ const c=document.createElement('canvas'); c.width=c.height=64; const g=c.getContext('2d'); g.fillStyle='#ffd84a'; g.strokeStyle='#332'; g.lineWidth=4;
+  g.beginPath(); g.arc(32,32,26,0,Math.PI*2); g.fill(); g.stroke(); g.fillStyle='#332'; g.font='bold 38px sans-serif'; g.textAlign='center'; g.textBaseline='middle'; g.fillText('?',32,35); return new THREE.CanvasTexture(c); })();
+const civFollowTex=(()=>{ const c=document.createElement('canvas'); c.width=c.height=64; const g=c.getContext('2d'); g.fillStyle='#6eff8c'; g.strokeStyle='#132'; g.lineWidth=4;
+  g.beginPath(); g.arc(32,32,26,0,Math.PI*2); g.fill(); g.stroke(); g.strokeStyle='#132'; g.lineWidth=7; g.beginPath(); g.moveTo(19,33); g.lineTo(29,43); g.lineTo(46,23); g.stroke(); return new THREE.CanvasTexture(c); })();
+const SHIRTS=[0xe8e8e8,0x6a8fd0,0xd07a6a,0x8ac27a];
+function buildHostage(id){ const g=new THREE.Group(), L=c=>new THREE.MeshLambertMaterial({color:c});
+  const add=(w,h,d,m,x,y,z)=>{ const me=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m); me.position.set(x,y,z); me.castShadow=true; g.add(me); return me; };
+  const legL=add(0.24,0.85,0.26,L(0x3a4f7a),-0.14,0.425,0), legR=add(0.24,0.85,0.26,L(0x3a4f7a),0.14,0.425,0);
+  legL.geometry.translate(0,-0.4,0); legL.position.y=0.85; legR.geometry.translate(0,-0.4,0); legR.position.y=0.85;
+  add(0.62,0.78,0.36,L(SHIRTS[(id-1)%4]),0,1.24,0); add(0.38,0.4,0.38,L(0xd9a87e),0,1.84,0); add(0.4,0.12,0.4,L(0x3b2a1e),0,2.08,0);
+  const armL=add(0.15,0.55,0.15,L(SHIRTS[(id-1)%4]),-0.38,1.3,0), armR=add(0.15,0.55,0.15,L(SHIRTS[(id-1)%4]),0.38,1.3,0);
+  armL.geometry.translate(0,-0.22,0); armL.position.y=1.55; armR.geometry.translate(0,-0.22,0); armR.position.y=1.55;
+  const icon=new THREE.Sprite(new THREE.SpriteMaterial({map:civTex,depthTest:false,transparent:true})); icon.scale.set(0.4,0.4,1); icon.position.y=2.55; icon.renderOrder=999; g.add(icon);
+  g.scale.setScalar(0.9); scene.add(g); return {group:g,legL,legR,armL,armR,icon,walk:0}; }
+function syncHostages(list){ const seen=new Set();
+  for(const [id,x,z,st,yaw,by] of list){ seen.add(id); let h=hostMap.get(id);
+    if(!h){ h=Object.assign(buildHostage(id),{id,x,z,tx:x,tz:z,yaw,state:st,by}); h.group.position.set(x,0,z); hostMap.set(id,h); }
+    h.tx=x; h.tz=z; h.yaw=yaw; h.state=st; h.by=by; }
+  for(const [id,h] of hostMap) if(!seen.has(id)){ scene.remove(h.group); hostMap.delete(id); } }
+function updateHostages(dt){ for(const h of hostMap.values()){ const g=h.group; g.visible=h.state!==2;
+    const ox=h.x, oz=h.z; h.x+=(h.tx-h.x)*Math.min(1,dt*10); h.z+=(h.tz-h.z)*Math.min(1,dt*10); const mv=Math.hypot(h.x-ox,h.z-oz)/Math.max(dt,1e-3);
+    g.position.set(h.x,0,h.z); g.rotation.y=h.yaw+Math.PI; h.walk+=mv*dt*4; const sw=Math.sin(h.walk)*0.6*Math.min(1,mv/2);
+    h.legL.rotation.x=sw; h.legR.rotation.x=-sw;
+    const up=h.state===0; h.armL.rotation.z=up?2.6:0.1; h.armR.rotation.z=up?-2.6:-0.1; h.armL.rotation.x=up?0:-sw*0.6; h.armR.rotation.x=up?0:sw*0.6;
+    h.icon.material.map=h.state===1?civFollowTex:civTex; h.icon.visible=net.mode==='hostage'; } }
 let dashT=0, dashCd=0; const dashVel=new THREE.Vector3();
 function dash(){ if(state.mode!=='play'||!P.alive||dashCd>0||shopOpen||srv.r.ph==='freeze'||srv.r.ph==='matchend'||!P.onGround) return;
   let ix=0,iz=0; if(keys.KeyW||keys.ArrowUp) iz+=1; if(keys.KeyS||keys.ArrowDown) iz-=1; if(keys.KeyA||keys.ArrowLeft) ix-=1; if(keys.KeyD||keys.ArrowRight) ix+=1;
@@ -1482,7 +1523,7 @@ function dash(){ if(state.mode!=='play'||!P.alive||dashCd>0||shopOpen||srv.r.ph=
 function leaveToMenu(msg){ const ws=net.ws; net.ws=null; net.joined=false; if(ws) try{ ws.close(); }catch(e){}
   state.mode='menu'; P.alive=false; clearTouch(); for(const r of [...remotes.values()]) removeRemote(r);
   for(const n of nadeList) scene.remove(n.m); nadeList.length=0; for(const r of rocketList) scene.remove(r.m); rocketList.length=0; clearSmokes(); blindT=0;
-  bombMesh.visible=false; srv.b={s:'none',x:0,z:0,tm:0,site:null,c:null}; srv.d=null; syncHolos([]); syncDrones([]); dashCd=0; shopOpen=false; $('shop').classList.add('hidden');
+  bombMesh.visible=false; srv.b={s:'none',x:0,z:0,tm:0,site:null,c:null}; srv.d=null; syncHolos([]); syncDrones([]); syncHostages([]); dashCd=0; shopOpen=false; $('shop').classList.add('hidden');
   ['scoped','sniper','zoomable','knife','can-use','can-buy','dead-spec'].forEach(c=>bodyClass(c,false)); camera.fov=BASE_FOV; camera.updateProjectionMatrix();
   if(document.pointerLockElement) document.exitPointerLock();
   hud.classList.add('hidden'); $('joinBox').classList.remove('hidden'); $('joinActs').classList.remove('hidden'); $('pauseNote').classList.add('hidden'); $('pauseBox').classList.add('hidden');
@@ -1560,7 +1601,7 @@ function step(dt){
   if(state.mode==='play'||state.mode==='paused'){
     if(P.alive) updatePlayer(dt); else updateSpectate(dt);
     if(shopOpen&&!canBuy()) closeShop();
-    updateRemotes(dt); updateDrones(dt); updateHolos(dt); updateDrop(dt); updateNades(dt); updateRockets(dt); updateSmokes(dt); updateBlind(dt); updateBomb(dt); updateHUD(dt);
+    updateRemotes(dt); updateHostages(dt); updateDrones(dt); updateHolos(dt); updateDrop(dt); updateNades(dt); updateRockets(dt); updateSmokes(dt); updateBlind(dt); updateBomb(dt); updateHUD(dt);
   } else { menuSpin+=dt*0.08; camera.position.set(Math.sin(menuSpin)*30,14,Math.cos(menuSpin)*30); camera.lookAt(0,0,0); }
   updateSnow(dt); updateFx(dt); }
 function frame(){ requestAnimationFrame(frame); step(Math.min(clock.getDelta(),0.05));
