@@ -1,7 +1,7 @@
 // Общие данные и правила «Пыльного рубежа онлайн»: этот файл используют и сервер, и браузер.
 (function(G){
 'use strict';
-const C={PLANT_TIME:3.2,DEFUSE_TIME:5,BOMB_TIME:40,ROUND_TIME:115,FREEZE_TIME:4,BUY_TIME:20,POST_TIME:5,MATCH_END_TIME:9,MATCH_WIN:7,EYE:1.7,
+const C={DROP_OPEN:1.5,DROP_DELAY:25,DROP_FFA:75,HOLO_TIME:8,DASH_CD:5,PLANT_TIME:3.2,DEFUSE_TIME:5,BOMB_TIME:40,ROUND_TIME:115,FREEZE_TIME:4,BUY_TIME:20,POST_TIME:5,MATCH_END_TIME:9,MATCH_WIN:7,EYE:1.7,
   FFA_KILLS:30,FFA_TIME:600,RESPAWN:3,MAX_BOMB:10,MAX_FFA:12,MAX_TEAM:5,NADE_R:7.5,BOMB_R:22,NR:0.11,
   START_MONEY:800,MAX_MONEY:16000,WIN_MONEY:3250,LOSS_MONEY:1400,LOSS_STEP:500,PLANT_MONEY:300};
 
@@ -21,10 +21,11 @@ const WEAPONS=[
   {name:'Автопистолет',slot:'s',dmg:18,head:3.5,rate:0.06,pierce:1,mul:1,reward:300,price:500},
   {name:'Автодробовик',slot:'p',pellets:7,dmg:15,head:2,rate:0.28,reward:600,price:3000},
   {name:'Винтовка с оптикой',slot:'p',dmg:30,head:4,rate:0.095,pierce:2,mul:0.7,reward:300,price:3300},
-  {name:'Гранатомёт',slot:'p',rocket:true,rate:1.0,reward:200,price:6000}];
-const GEAR={armor:650,kit:400,he:300,smoke:300,flash:200};
-const NADE_MAX={he:1,smoke:1,flash:2};
-const NADE_FUSE={he:1.8,smoke:1.6,flash:1.4};
+  {name:'Гранатомёт',slot:'p',rocket:true,rate:1.0,reward:200,price:6000},
+  {name:'Золотой АК',slot:'p',special:true,dmg:45,head:4,rate:0.1,pierce:3,mul:0.8,reward:300,price:0}];
+const GEAR={armor:650,kit:400,he:300,smoke:300,flash:200,holo:250};
+const NADE_MAX={he:1,smoke:1,flash:2,holo:1};
+const NADE_FUSE={he:1.8,smoke:1.6,flash:1.4,holo:1.0};
 
 // ---------- карты ----------
 // Каждая карта описана функцией, которая вызывает a.box(...) и другие «кирпичики».

@@ -30,7 +30,7 @@ const shuffle=a=>{ a=a.slice(); for(let i=a.length-1;i>0;i--){ const j=(Math.ran
 const cleanName=s=>(String(s||'').replace(/[\u0000-\u001f<>]/g,'').trim().slice(0,16))||('Игрок'+((Math.random()*900+100)|0));
 const cleanCode=s=>(String(s||'').toLowerCase().replace(/[^a-z0-9а-яё_-]/gi,'').slice(0,16))||'main';
 const OFFS=[[0,0],[-2.5,0],[2.5,0],[-5,0],[5,0],[0,2.5],[-2.5,2.5],[2.5,2.5],[-5,2.5],[5,2.5]];
-const freshInv=()=>({primary:null,secondary:1,armor:0,kit:false,nades:{he:0,smoke:0,flash:0}});
+const freshInv=()=>({primary:null,secondary:1,armor:0,kit:false,nades:{he:0,smoke:0,flash:0,holo:0}});
 
 /* ---------- комнаты ---------- */
 let nextId=1;
@@ -43,6 +43,7 @@ class Room{
     this.phase=mode==='ffa'?'live':'wait'; this.timer=mode==='ffa'?C.FFA_TIME:0; this.startT=3; this.buyUntil=0;
     this.round=0; this.score={CT:0,T:0}; this.lossStreak={CT:0,T:0}; this.matchOver=false; this.snapAcc=0;
     this.bomb={s:'none',x:0,z:0,timer:0,site:null,carrier:null};
+    this.drop={s:'none',x:0,z:0,h:0,t:0}; this.dropAt=mode==='ffa'?Date.now()+45000:0; this.holos=[];
   }
   send(p,o){ if(p.ws.readyState===1) p.ws.send(JSON.stringify(o)); }
   broadcast(o,except){ const s=JSON.stringify(o); for(const p of this.players.values()) if(p!==except&&p.ws.readyState===1) p.ws.send(s); }
@@ -58,7 +59,7 @@ class Room{
     const id=nextId++;
     const team=this.mode==='ffa'?(Math.random()<.5?'CT':'T'):this.pickTeam(pref);
     const p={id,ws,name,team,x:0,y:0,z:0,yaw:0,pitch:0,w:1,sp:0,hp:100,alive:false,kills:0,deaths:0,money:C.START_MONEY,inv:freshInv(),
-      using:false,useP:0,lastShot:0,lastKnife:0,respawnT:0,lastSt:Date.now(),survived:false};
+      using:false,useP:0,dropP:0,lastDash:0,dashUntil:0,lastShot:0,lastKnife:0,respawnT:0,lastSt:Date.now(),survived:false};
     this.players.set(id,p);
     this.send(p,{t:'welcome',id,room:this.code,mode:this.mode,map:this.map,team});
     this.broadcast({t:'msg',text:name+' заходит в игру'},p);
@@ -101,7 +102,7 @@ class Room{
     if(v.hp<=0) this.kill(v,att,head,how,wIdx);
   }
   kill(v,att,head,how,wIdx){
-    v.alive=false; v.hp=0; v.deaths++; v.useP=0; v.using=false;
+    v.alive=false; v.hp=0; v.deaths++; v.useP=0; v.dropP=0; v.using=false; if(v.inv.primary===14) v.inv.primary=null;
     if(att&&att!==v){ att.kills++;
       if(this.mode==='bomb'){ const rw=how==='граната'?300:how==='гранатомёт'?200:how==='нож'?1500:(WEAPONS[wIdx]?WEAPONS[wIdx].reward:300);
         att.money=Math.min(C.MAX_MONEY,att.money+rw); this.sendInv(att); this.send(att,{t:'money',add:rw}); } }
@@ -135,7 +136,7 @@ class Room{
     this.startRound(); }
   startRound(){
     this.round++; this.phase='freeze'; this.timer=C.FREEZE_TIME; this.nades=[]; this.rockets=[];
-    this.buyUntil=Date.now()+C.BUY_TIME*1000;
+    this.buyUntil=Date.now()+C.BUY_TIME*1000; this.drop.s='none'; this.holos=[]; this.dropAt=Date.now()+(C.FREEZE_TIME+C.DROP_DELAY)*1000;
     const b=this.bomb; Object.assign(b,{s:'none',x:0,z:0,timer:0,site:null,carrier:null});
     const idx={CT:0,T:0}, ts=[];
     if(this.mode==='retake'){
@@ -171,7 +172,7 @@ class Room{
     if(this.score[winner]>=C.MATCH_WIN) this.matchOver=true;
   }
   toWait(){
-    this.phase='wait'; this.startT=3; this.nades=[]; this.rockets=[]; Object.assign(this.bomb,{s:'none',carrier:null,site:null,timer:0});
+    this.phase='wait'; this.startT=3; this.nades=[]; this.rockets=[]; this.drop.s='none'; this.dropAt=0; this.holos=[]; Object.assign(this.bomb,{s:'none',carrier:null,site:null,timer:0});
     this.broadcast({t:'round',title:'Ожидание игроков',sub:'Нужен хотя бы один игрок в каждой команде. Пока можно потренироваться'});
     for(const p of this.players.values()) if(!p.alive) this.spawn(p,this.teamIndex(p));
   }
@@ -191,7 +192,7 @@ class Room{
         p.yaw=yaw; p.pitch=clamp(pitch,-1.6,1.6); p.w=Number.isInteger(m.w)&&this.owns(p,m.w)?m.w:p.w; p.sp=clamp(num(m.sp)||0,0,20);
         if(this.phase==='freeze'){ p.lastSt=now; return; }
         const el=(now-p.lastSt)/1000, d=Math.hypot(x-p.x,z-p.z);
-        if(d>2+9*el){ this.send(p,{t:'pos',x:r2(p.x),z:r2(p.z)}); p.lastSt=now; return; }
+        if(d>2+9*el+(now<p.dashUntil?9:0)){ this.send(p,{t:'pos',x:r2(p.x),z:r2(p.z)}); p.lastSt=now; return; }
         const q={x,z}; GD.clampMap(q); p.x=q.x; p.z=q.z; p.y=clamp(y,0,4); p.lastSt=now;
         return; }
       case 'shot':{
@@ -234,7 +235,7 @@ class Room{
       case 'buy':{
         if(!this.canBuy(p)) return this.send(p,{t:'msg',text:'Магазин закрыт'});
         const it=String(m.item||''), inv=p.inv; let price=0, ok=true;
-        if(it.startsWith('w:')){ const wi=Number(it.slice(2)), W=WEAPONS[wi]; if(!W||W.knife||wi===1) return; price=W.price;
+        if(it.startsWith('w:')){ const wi=Number(it.slice(2)), W=WEAPONS[wi]; if(!W||W.knife||W.special||wi===1) return; price=W.price;
           if(inv.primary===wi||inv.secondary===wi) ok=false; }
         else if(it==='armor'){ price=GEAR.armor; if(inv.armor>=100) ok=false; }
         else if(it==='kit'){ price=GEAR.kit; if(inv.kit||this.mode==='ffa'||p.team!=='CT') ok=false; }
@@ -247,6 +248,10 @@ class Room{
         else if(it==='armor') inv.armor=100; else if(it==='kit') inv.kit=true; else inv.nades[it]++;
         this.sendInv(p); return; }
       case 'use': p.using=!!m.on; return;
+      case 'dash': if(!p.alive||now-p.lastDash<C.DASH_CD*1000-300) return; p.lastDash=now; p.dashUntil=now+700; return;
+      case 'holohit':{ if(!p.alive) return; const i=this.holos.findIndex(h=>h.id===(m.id|0)); if(i<0) return; const h=this.holos[i];
+        if(this.mode==='ffa'?h.owner===p.id:h.team===p.team) return; this.holos.splice(i,1);
+        this.broadcast({t:'holo',ev:'pop',id:h.id,x:r2(h.x),z:r2(h.z),by:p.name}); return; }
       case 'team':{
         if(this.mode==='ffa') return;
         const t=m.team; if((t!=='CT'&&t!=='T')||t===p.team) return;
@@ -270,11 +275,27 @@ class Room{
         else { const owner=this.players.get(r.owner); for(const p of this.players.values()) if(p.alive&&p.id!==r.owner&&(!owner||this.canHurt(owner,p))&&Math.hypot(p.x-r.p.x,p.z-r.p.z)<0.65&&r.p.y>p.y&&r.p.y<p.y+2.1){ boom=true; break; } } }
       if(boom){ this.rockets.splice(i,1); const o={x:r.p.x,y:Math.max(r.p.y,0.35),z:r.p.z};
         this.broadcast({t:'boom',rid:r.id,x:r2(o.x),y:r2(o.y),z:r2(o.z)}); this.explode(o,this.players.get(r.owner)||null,'гранатомёт',C.NADE_R,140,85); } }
+    this.tickDrop(dt); this.tickHolos(dt);
     if(this.mode==='ffa') this.tickFFA(dt); else this.tickBomb(dt);
     this.snapAcc+=dt; if(this.snapAcc>=0.05){ this.snapAcc=0; this.snapshot(); }
   }
+  // supply drop: falls from the sky mid-round, whoever opens it gets the golden AK
+  tickDrop(dt){ const d=this.drop, now=Date.now();
+    if(d.s==='none'){ if(this.dropAt&&now>=this.dropAt&&(this.mode==='ffa'||this.phase==='live')&&this.players.size){
+        const list=MAPS[this.map].ffa, sp=list[(Math.random()*list.length)|0], q={x:sp[0]*0.6,z:sp[1]*0.6}; GD.collide(q,1,this.solids); GD.clampMap(q);
+        Object.assign(d,{s:'falling',x:q.x,z:q.z,h:28,t:45}); this.dropAt=0; this.broadcast({t:'drop',ev:'incoming',x:r2(q.x),z:r2(q.z)}); } return; }
+    if(d.s==='falling'){ d.h-=dt*5; if(d.h<=0){ d.h=0; d.s='landed'; this.broadcast({t:'drop',ev:'landed'}); } return; }
+    d.t-=dt; if(d.t<=0){ d.s='none'; if(this.mode==='ffa') this.dropAt=now+C.DROP_FFA*1000; return; }
+    for(const p of this.players.values()){
+      if(p.alive&&p.using&&p.sp<1.5&&Math.hypot(p.x-d.x,p.z-d.z)<2.2){ p.dropP+=dt;
+        if(p.dropP>=C.DROP_OPEN){ p.dropP=0; d.s='none'; p.inv.primary=14; this.send(p,{t:'bought',w:14}); this.sendInv(p);
+          this.broadcast({t:'drop',ev:'taken',name:p.name,team:p.team}); if(this.mode==='ffa') this.dropAt=now+C.DROP_FFA*1000; return; } }
+      else p.dropP=0; } }
+  tickHolos(dt){ for(let i=this.holos.length-1;i>=0;i--){ const h=this.holos[i]; h.t-=dt; if(h.t<=0){ this.holos.splice(i,1); this.broadcast({t:'holo',ev:'pop',id:h.id,x:r2(h.x),z:r2(h.z)}); } } }
   nadeBoom(n){
     const o=n.p; o.y=Math.max(o.y,0.35);
+    if(n.type==='holo'){ const ow=this.players.get(n.owner), q={x:o.x,z:o.z}; GD.collide(q,0.4,this.solids);
+      this.holos.push({id:n.id,x:q.x,z:q.z,yaw:ow?ow.yaw:0,team:ow?ow.team:'T',owner:n.owner,t:C.HOLO_TIME}); return this.broadcast({t:'holo',ev:'up',id:n.id,x:r2(q.x),z:r2(q.z)}); }
     if(n.type==='smoke') return this.broadcast({t:'smoke',nid:n.id,x:r2(o.x),z:r2(o.z)});
     if(n.type==='flash') return this.broadcast({t:'flash',nid:n.id,x:r2(o.x),y:r2(o.y),z:r2(o.z),owner:n.owner});
     this.broadcast({t:'boom',nid:n.id,x:r2(o.x),y:r2(o.y),z:r2(o.z)});
@@ -330,10 +351,11 @@ class Room{
   }
   snapshot(){
     const ps=[]; for(const p of this.players.values())
-      ps.push([p.id,r2(p.x),r2(p.y),r2(p.z),r3(p.yaw),r3(p.pitch),Math.max(0,Math.round(p.hp)),p.alive?1:0,p.team,p.w,r2(p.useP),p.name,p.kills,p.deaths]);
+      ps.push([p.id,r2(p.x),r2(p.y),r2(p.z),r3(p.yaw),r3(p.pitch),Math.max(0,Math.round(p.hp)),p.alive?1:0,p.team,p.w,r2(p.useP),p.name,p.kills,p.deaths,r2(p.dropP)]);
     const b=this.bomb;
     this.broadcast({t:'snap',ps,b:{s:b.s,x:r2(b.x),z:r2(b.z),tm:r2(b.timer),site:b.site,c:b.carrier},
-      r:{ph:this.phase,tm:r2(this.timer),n:this.round,ct:this.score.CT,tt:this.score.T,mode:this.mode,buy:r2(Math.max(0,(this.buyUntil-Date.now())/1000))}});
+      r:{ph:this.phase,tm:r2(this.timer),n:this.round,ct:this.score.CT,tt:this.score.T,mode:this.mode,buy:r2(Math.max(0,(this.buyUntil-Date.now())/1000))},
+      d:{s:this.drop.s,x:r2(this.drop.x),z:r2(this.drop.z),h:r2(this.drop.h)},hs:this.holos.map(h=>[h.id,r2(h.x),r2(h.z),r3(h.yaw),h.team,h.owner])});
   }
 }
 
