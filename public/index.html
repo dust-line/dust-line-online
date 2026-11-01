@@ -127,6 +127,8 @@ body.touch #money{top:calc(122px + env(safe-area-inset-top,0px));font-size:15px}
 body.can-buy #bShop{display:flex!important}
 #bDash{width:60px;height:60px;left:calc(28px + env(safe-area-inset-left,0px));top:calc(42% + 76px);font-size:11px;border-color:#7fe0ff}
 #bDash.cd{opacity:.45}
+#bDrone{width:56px;height:56px;left:calc(98px + env(safe-area-inset-left,0px));top:calc(42% + 78px);font-size:11px;border-color:#9dff7a}
+#bDrone.cd{opacity:.4}
 #shop{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(860px,94vw);max-height:88vh;overflow:auto;background:rgba(20,18,14,.96);border:1px solid rgba(233,211,166,.25);border-radius:12px;padding:16px 18px;pointer-events:auto;box-shadow:0 20px 60px rgba(0,0,0,.6)}
 #shop.hidden{display:none}
 .shophead{display:flex;align-items:center;gap:14px;margin-bottom:8px}
@@ -229,6 +231,7 @@ body.touch #hint{bottom:auto;top:calc(110px + env(safe-area-inset-top,0px))}
 .play:active{transform:translateY(3px);box-shadow:0 2px 0 #a8480a}
 .ghost{margin:6px 0 0 10px;border:2px solid rgba(233,211,166,.4);background:transparent;color:var(--text);font:17px "Russo One",system-ui,sans-serif;padding:12px 22px;border-radius:8px;cursor:pointer}
 .ghost.hidden,#setupBox.hidden,#sideBox.hidden{display:none}
+.hidden{display:none!important}
 input[type=range]{width:220px;accent-color:var(--signal)}
 .controls{margin-top:22px;font-size:14px;color:#cdbb97;line-height:1.7}
 .controls kbd{font:13px "Rubik",system-ui,sans-serif;background:rgba(233,211,166,.15);border:1px solid rgba(233,211,166,.3);border-radius:4px;padding:1px 6px;color:var(--text)}
@@ -300,6 +303,7 @@ body.touch #boardBtn{display:block}
     <div class="tbtn" id="bUse" data-btn="use">держи</div>
     <div class="tbtn" id="bShop" data-btn="shop">магазин</div>
     <div class="tbtn" id="bDash" data-btn="dash">рывок</div>
+    <div class="tbtn" id="bDrone" data-btn="drone">дрон</div>
   </div>
   <div id="shop" class="hidden" role="dialog" aria-label="Магазин оружия">
     <div class="shophead"><h2>Магазин</h2><span id="shopTime"></span><span id="shopMoney"></span><button id="shopClose" aria-label="Закрыть магазин">✕</button></div>
@@ -381,7 +385,7 @@ body.touch #boardBtn{display:block}
       <div class="controls" style="margin-top:4px">
       <span class="desk-only"><kbd>W A S D</kbd> движение · <kbd>мышь</kbd> прицел · <kbd>ЛКМ</kbd> огонь · <kbd>R</kbd> перезарядка<br>
       <kbd>1</kbd> основное · <kbd>2</kbd> пистолет · <kbd>3</kbd> нож · колёсико — смена · <kbd>B</kbd> магазин · <kbd>V</kbd> осмотр · нож: <kbd>ПКМ</kbd> сильный удар, <kbd>V</kbd> осмотр · <kbd>ПКМ</kbd> прицел снайперки<br>
-      <kbd>G</kbd> осколочная граната · <kbd>C</kbd> дымовая · <kbd>F</kbd> световая · <kbd>H</kbd> голограмма · <kbd>X</kbd> рывок<br>
+      <kbd>G</kbd> осколочная граната · <kbd>C</kbd> дымовая · <kbd>F</kbd> световая · <kbd>H</kbd> голограмма · <kbd>Z</kbd> дрон · <kbd>X</kbd> рывок<br>
       <kbd>E</kbd> (держать) — заложить или обезвредить бомбу · <kbd>Tab</kbd> таблица счёта · <kbd>Пробел</kbd> прыжок · <kbd>Shift</kbd> тихий шаг · <kbd>Esc</kbd> пауза</span>
       <span class="touch-only">Левый джойстик — движение, свайп справа — прицел. Кнопку «огонь» можно держать и одновременно вести прицел. Маленькая кнопка «тип» рядом с гранатой переключает осколочную, дымовую и световую. Рядом с бомбой или на точке появляется кнопка «держи» — зажми её, чтобы заложить или обезвредить.</span>
     </div>
@@ -849,7 +853,7 @@ addEventListener('keydown',e=>{ if(typing(e)) return; keys[e.code]=true;
     if(e.code==='Digit2') switchWeapon(inv.secondary);
     if(e.code==='Digit3'||e.code==='Digit4') switchWeapon(3);
     if(e.code==='KeyQ') switchWeapon(prevW);
-    if(e.code==='KeyG') throwNade('he'); if(e.code==='KeyC') throwNade('smoke'); if(e.code==='KeyF') throwNade('flash'); if(e.code==='KeyH') throwNade('holo'); if(e.code==='KeyX') dash();
+    if(e.code==='KeyG') throwNade('he'); if(e.code==='KeyC') throwNade('smoke'); if(e.code==='KeyF') throwNade('flash'); if(e.code==='KeyH') throwNade('holo'); if(e.code==='KeyX') dash(); if(e.code==='KeyZ') launchDrone();
     if(e.code==='KeyV') inspectWeapon();
     if(e.code==='KeyB') toggleShop();
     if(e.code==='Space'){ input.jump=true; e.preventDefault(); } }
@@ -884,7 +888,7 @@ touchEl.addEventListener('touchstart',e=>{ e.preventDefault(); if(state.mode!=='
       else if(k==='use'){ T.useId=t.identifier; T.useBtn=btn; btn.classList.add('on'); }
       else if(k==='jump') input.jump=true; else if(k==='reload') startReload(); else if(k==='swap') cycleWeapon(1);
       else if(k==='nade') throwNade(nadeSel); else if(k==='nadesel') cycleNade(); else if(k==='scope'&&(W().sniper||W().zoom)) scopeWanted=!scopeWanted;
-      else if(k==='heavy') input.heavy=true; else if(k==='dash') dash(); else if(k==='inspect') inspectWeapon(); else if(k==='shop') toggleShop();
+      else if(k==='heavy') input.heavy=true; else if(k==='dash') dash(); else if(k==='drone') launchDrone(); else if(k==='inspect') inspectWeapon(); else if(k==='shop') toggleShop();
       continue; }
     if(t.clientX<innerWidth*0.42&&T.stickId===null){ T.stickId=t.identifier; T.sx=t.clientX; T.sy=t.clientY; stick.style.left=t.clientX+'px'; stick.style.top=t.clientY+'px'; }
     else T.look.set(t.identifier,{x:t.clientX,y:t.clientY}); } },{passive:false});
@@ -952,6 +956,7 @@ const hurtable=r=>r.alive&&r.av&&(isFFA()||r.team!==net.team);
 /* ---------- networking ---------- */
 function send(o){ if(net.ws&&net.ws.readyState===1) net.ws.send(JSON.stringify(o)); }
 function connect(){
+  if(net.ws||net.joined) return;
   const name=$('nick').value.trim()||settings.name, room=$('roomCode').value.trim()||'main';
   settings.name=name; settings.room=room; store.set('name',name); store.set('room',room);
   $('err').textContent=''; $('joinBtn').disabled=true; $('joinBtn').textContent='Подключение…';
@@ -975,7 +980,7 @@ function onMsg(m){
     case 'snap': onSnap(m); return;
     case 'spawn': resetPlayer(m.x,m.z,m.yaw); net.pendingSpawn=true; return;
     case 'inv':
-      net.money=m.money; net.free=!!m.free; inv.primary=m.primary; inv.secondary=m.secondary; inv.armor=m.armor; inv.kit=m.kit; nades={...m.nades};
+      net.money=m.money; net.free=!!m.free; inv.drone=m.drone||0; inv.primary=m.primary; inv.secondary=m.secondary; inv.armor=m.armor; inv.kit=m.kit; nades={...m.nades};
       if(net.pendingSpawn){ net.pendingSpawn=false; cur=inv.primary!==null?inv.primary:inv.secondary; prevW=3; switching=0.45; }
       else if(!owned().includes(cur)) switchWeapon(inv.secondary);
       if(shopOpen) renderShop(); return;
@@ -1012,11 +1017,15 @@ function onMsg(m){
       if(m.ev==='incoming'){ banner('Воздушный груз!','Внутри золотой АК — ищи световой столб и отметку на радаре',3.4); [0,140,280].forEach((d,i)=>setTimeout(()=>beep([520,660,880][i],0.18,0.1,'triangle'),d)); }
       else if(m.ev==='taken'){ feedLine([[m.name,isFFA()?'':m.team==='CT'?'ct':'tt'],['  забрал золотой АК','hs']],m.name===settings.name); }
       return;
+    case 'drone':
+      if(m.ev==='up'){ beep(700,0.25,0.05,'sawtooth'); }
+      else if(m.ev==='gone'){ const o=new THREE.Vector3(m.x,m.y,m.z); spark(o,m.by?0xffb347:0x9dff7a,m.by?14:6); if(m.by){ shotSound(0.3,1500,0.3); feedLine([[m.by+'  ',''],['сбил дрон','hs']],m.by===settings.name); } }
+      return;
     case 'holo':{ const o=new THREE.Vector3(m.x,1.2,m.z); spark(o,0x6fe8ff,m.ev==='pop'?12:6); beep(m.ev==='pop'?1800:1100,0.15,0.06,'sine');
       if(m.ev==='pop'&&m.by&&holoMap.has(m.id)&&holoMap.get(m.id).mine) toast(m.by+' раскусил твою голограмму'); return; }
   } }
 function onSnap(m){ const now=performance.now(), seen=new Set();
-  srv.r=m.r; srv.rAt=now; srv.b=m.b; srv.bAt=now; srv.d=m.d; syncHolos(m.hs||[]);
+  srv.r=m.r; srv.rAt=now; srv.b=m.b; srv.bAt=now; srv.d=m.d; syncHolos(m.hs||[]); syncDrones(m.ds||[]);
   for(const a of m.ps){ const [id,x,y,z,yaw,pitch,hp,alive,team,w,useP,name,kills,deaths,dropP]=a; seen.add(id);
     if(id===net.id){ const wasAlive=P.alive; P.hp=hp; if(team!==net.team) net.team=team;
       net.useP=useP; net.dropP=dropP||0; net.kills=kills; net.deaths=deaths; if(wasAlive&&!alive) localDown(); continue; }
@@ -1073,12 +1082,13 @@ function setKnife(type,skin){ settings.knife={type,skin}; store.set('knife',sett
 function switchWeapon(i){ if(i===cur||i==null||!owned().includes(i)) return; reloading=0; prevW=cur; cur=i; scopeWanted=false; switching=0.45; spray=0; knA.type=null;
   if(WEAPONS[i].knife){ beep(2600,0.12,0.04,'triangle'); setTimeout(()=>beep(3400,0.08,0.03,'triangle'),60); } else beep(300,0.04,0.06); }
 function inspectWeapon(){ if(state.mode!=='play'||!P.alive||knA.type||switching>0||reloading>0) return; knA={type:'inspect',t:0,dur:W().knife?2.4:2.8}; }
-function hitList(dirV,far){ const targets=[ground,...solidMeshes]; for(const r of remotes.values()) if(hurtable(r)) targets.push(...r.av.parts); for(const h of holoMap.values()) if(!h.mine) targets.push(...h.av.parts);
+function hitList(dirV,far){ const targets=[ground,...solidMeshes]; for(const r of remotes.values()) if(hurtable(r)) targets.push(...r.av.parts); for(const h of holoMap.values()) if(!h.mine) targets.push(...h.av.parts); for(const d of droneMap.values()) if(!d.ally) targets.push(...d.parts);
   ray.set(camera.position,dirV); ray.far=far; return ray.intersectObjects(targets,false); }
 function knifeAttack(heavy){
   fireCd=heavy?1.0:0.45; input.firedPress=true; knA={type:heavy?'stab':'slash',t:0,dur:heavy?0.5:0.32}; swish(heavy);
   const hits=hitList(new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion),heavy?1.9:2.2); const h=hits[0]; let hit=null;
-  if(h&&h.object.userData.holo){ holoHit(h.object.userData.holo,h.point); }
+  if(h&&h.object.userData.drone){ droneHit(h.object.userData.drone,h.point); }
+  else if(h&&h.object.userData.holo){ holoHit(h.object.userData.holo,h.point); }
   else if(h){ const ud=h.object.userData; if(ud&&ud.pid){ hit={id:ud.pid,head:ud.head}; spark(h.point,0xffffff,4); beep(heavy?150:210,0.08,0.12,'square'); const r=remotes.get(ud.pid); if(r) r.flash=0.1; }
     else if(h.face){ spark(h.point,0xffffff,2); beep(1100,0.03,0.06,'triangle'); decal(h.point,h.face.normal); } }
   send({t:'knife',heavy:!!heavy,hit}); }
@@ -1104,13 +1114,15 @@ function fire(){
     for(let i=0;i<w.pellets;i++){ const c=sp+w.cone; d.set((Math.random()-.5)*2*c,(Math.random()-.5)*2*c,-1).normalize().applyQuaternion(camera.quaternion);
       const hs=hitList(d,60); const h=hs[0]; let e=camera.position.clone().addScaledVector(d,40);
       if(h){ e=h.point.clone(); const ud=h.object.userData;
-        if(ud&&ud.holo){ holoHit(ud.holo,e); }
+        if(ud&&ud.drone){ droneHit(ud.drone,e); }
+        else if(ud&&ud.holo){ holoHit(ud.holo,e); }
         else if(ud&&ud.pid){ hits.push({id:ud.pid,head:ud.head,pt:[e.x,e.y,e.z].map(v=>+v.toFixed(3))}); spark(e,0xffffff,1); const r=remotes.get(ud.pid); if(r) r.flash=0.1; }
         else if(h.face&&i%2===0) decal(h.point,h.face.normal); }
       if(i<4) tracer(start,e,0xfff0b0); if(!end) end=e; } }
   else {
     const hs=hitList(fireDir,200), pierce=w.pierce||1, seen=new Set(); end=camera.position.clone().addScaledVector(fireDir,120);
     for(const x of hs){ const ud=x.object.userData;
+      if(ud&&ud.drone){ droneHit(ud.drone,x.point); end=x.point.clone(); break; }
       if(ud&&ud.holo){ holoHit(ud.holo,x.point); end=x.point.clone(); break; }
       if(ud&&ud.pid){ if(seen.has(ud.pid)) continue; seen.add(ud.pid); hits.push({id:ud.pid,head:ud.head,pt:[x.point.x,x.point.y,x.point.z].map(v=>+v.toFixed(3))});
         spark(x.point,ud.head?0xffe08a:0xffffff,ud.head?6:3); const r=remotes.get(ud.pid); if(r) r.flash=0.1; end=x.point.clone(); if(hits.length>=pierce) break; continue; }
@@ -1198,6 +1210,7 @@ function renderShop(){ $('shopMoney').textContent=net.free?'':'$'+net.money;
   for(const id of [10,8]) shopItem(pp,WEAPONS[id].name,priceOf(PRICES[id]),GUN_DESC[id]+PIERCE_TXT(WEAPONS[id].pierce),inv.secondary===id,'w:'+id,c=>drawGunShape(c,id,curSkin(id)));
   for(const id of [4,5,9,0,6,12,11,2,7,13]) shopItem(g,WEAPONS[id].name,priceOf(PRICES[id]),GUN_DESC[id]+PIERCE_TXT(WEAPONS[id].pierce),inv.primary===id,'w:'+id,c=>drawGunShape(c,id,curSkin(id)));
   shopItem(ge,'Бронежилет'+(inv.armor>0&&inv.armor<100?' ('+inv.armor+')':''),priceOf(GD.GEAR.armor),'Пули наносят на 50% меньше урона',inv.armor>=100,'armor');
+  shopItem(ge,'Дрон-разведчик',priceOf(GD.GEAR.drone),'Летит вперёд и 8 секунд подсвечивает врагов твоей команде',(inv.drone||0)>=1,'drone');
   if(!isFFA()&&net.team==='CT') shopItem(ge,'Сапёрный набор',priceOf(GD.GEAR.kit),'Обезвреживание бомбы в 2 раза быстрее',inv.kit,'kit');
   for(const k of ['he','smoke','flash','holo']) shopItem(n,{he:'Осколочная',smoke:'Дымовая',flash:'Световая',holo:'Голограмма'}[k]+' · '+(nades[k]||0)+'/'+GD.NADE_MAX[k],priceOf(GD.GEAR[k]),k==='holo'?'Фальшивый боец на 8 секунд — отвлекает врагов':GD.NADE_MAX[k]>1?'Можно купить 2':'Одна на раунд',nades[k]>=GD.NADE_MAX[k],k);
   $('shopHint').textContent=isFFA()?'В бою насмерть всё бесплатно и магазин работает всегда.':net.mode==='retake'?'В зачистке всё бесплатно, магазин открыт в начале раунда. Если выживешь, купленное останется.':'Деньги дают за убийства и раунды. Если выживешь, купленное останется на следующий раунд.'; }
@@ -1223,8 +1236,8 @@ function updateHUD(dt){
   else { setText(elAmmo,'am',String(w.ammo)); setText(elRes,'res','/ '+w.reserve); setText(elW,'wn',w.name+(settings.wskins[cur]&&settings.wskins[cur]!=='standard'?' «'+SKINS[settings.wskins[cur]]+'»':'')); elAmmoBox.classList.toggle('empty',w.ammo===0); }
   setText(elReload,'rl',reloading>0?'Перезарядка…':(w.ammo===0&&w.reserve===0&&!w.knife?'Нет патронов — смени оружие':''));
   if(isTouch){ setText($('nades'),'nd',NADE_KEYS.map(k=>(k===nadeSel?'▸':'')+NADE_SHORT[k]+' '+(nades[k]||0)).join('  ')); setText($('bNade'),'bn',NADE_SHORT[nadeSel]); }
-  else setText($('nades'),'nd','Осколочные '+(nades.he||0)+' (G) · Дым '+(nades.smoke||0)+' (C) · Свет '+(nades.flash||0)+' (F) · Голо '+(nades.holo||0)+' (H) · Рывок (X): '+(dashCd>0?Math.ceil(dashCd)+' с':'готов'));
-  if(isTouch){ setText($('bDash'),'bd',dashCd>0?Math.ceil(dashCd)+' с':'рывок'); $('bDash').classList.toggle('cd',dashCd>0); }
+  else setText($('nades'),'nd','Осколочные '+(nades.he||0)+' (G) · Дым '+(nades.smoke||0)+' (C) · Свет '+(nades.flash||0)+' (F) · Голо '+(nades.holo||0)+' (H) · Дрон '+(inv.drone||0)+' (Z) · Рывок (X): '+(dashCd>0?Math.ceil(dashCd)+' с':'готов'));
+  if(isTouch){ setText($('bDash'),'bd',dashCd>0?Math.ceil(dashCd)+' с':'рывок'); $('bDash').classList.toggle('cd',dashCd>0); $('bDrone').classList.toggle('cd',!(inv.drone>0)); }
   moneyPlusT=Math.max(0,moneyPlusT-dt); setText($('money'),'mo',net.free?'':'$'+net.money+(moneyPlusT>0&&moneyPlus>0?'  +'+moneyPlus:''));
   if(isFFA()){ let leader=null; for(const x of remotes.values()) if(!leader||x.kills>leader.kills) leader=x;
     setText(tb1,'tb1','Бой насмерть'); setText(tb2,'tb2',r.ph==='matchend'?'Итоги':fmt(timeLeft())); setText(tb3,'tb3','Ты: '+net.kills+' / '+C.FFA_KILLS); setText(tb4,'tb4',leader&&leader.kills>net.kills?'Лидер: '+leader.name+' '+leader.kills:'Ты лидер');
@@ -1431,6 +1444,35 @@ function updateHolos(dt){ const now=performance.now();
     if(!h.ally){ h.chk-=dt; if(h.chk<=0&&P.alive){ h.chk=0.2; tmpV.set(h.x,1.5,h.z); vD.subVectors(tmpV,camera.position); const d=vD.length();
       if(d<85){ vD.divideScalar(d); ray.set(camera.position,vD); ray.far=d; if(!ray.intersectObjects(solidMeshes,false).length&&!smokeBlocks(camera.position,tmpV)) h.seenT=now; } } } } }
 function holoHit(id,p){ const h=holoMap.get(id); if(!h||h.ally) return; spark(p,0x6fe8ff,8); send({t:'holohit',id}); }
+const droneMap=new Map(); let droneSpotted=new Set();
+const droneMats={body:new THREE.MeshLambertMaterial({color:0x2b2f36}),rotor:new THREE.MeshBasicMaterial({color:0x111111,transparent:true,opacity:.55}),ally:new THREE.MeshBasicMaterial({color:0x6bff8a}),enemy:new THREE.MeshBasicMaterial({color:0xff4040})};
+function buildDrone(id,ally){ const g=new THREE.Group(), parts=[], rotors=[];
+  const add=m=>{ m.userData={drone:id}; g.add(m); parts.push(m); return m; };
+  add(new THREE.Mesh(new THREE.BoxGeometry(0.34,0.1,0.34),droneMats.body));
+  for(const [x,z] of [[0.28,0.28],[-0.28,0.28],[0.28,-0.28],[-0.28,-0.28]]){ const arm=add(new THREE.Mesh(new THREE.BoxGeometry(0.05,0.04,0.42),droneMats.body)); arm.position.set(x/2,0,z/2); arm.rotation.y=Math.atan2(x,z);
+    const r=add(new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.15,0.01,12),droneMats.rotor)); r.position.set(x,0.06,z); rotors.push(r); }
+  const eye=add(new THREE.Mesh(new THREE.SphereGeometry(0.06,8,6),ally?droneMats.ally:droneMats.enemy)); eye.position.set(0,-0.04,-0.17);
+  const l=new THREE.PointLight(ally?0x6bff8a:0xff4040,0.8,5); l.position.y=-0.1; g.add(l);
+  scene.add(g); return {group:g,parts,rotors}; }
+const markTexDrone=(()=>{ const c=document.createElement('canvas'); c.width=c.height=64; const g=c.getContext('2d'); g.fillStyle='#ff4040'; g.strokeStyle='#200'; g.lineWidth=5;
+  g.beginPath(); g.moveTo(32,6); g.lineTo(58,56); g.lineTo(6,56); g.closePath(); g.fill(); g.stroke(); g.fillStyle='#fff'; g.font='bold 34px sans-serif'; g.textAlign='center'; g.fillText('!',32,52); return new THREE.CanvasTexture(c); })();
+function syncDrones(list){ const seen=new Set(), spotted=new Set();
+  for(const [id,x,y,z,team,owner,sp] of list){ seen.add(id); const ally=isFFA()?owner===net.id:team===net.team; let d=droneMap.get(id);
+    if(!d){ d=Object.assign(buildDrone(id,ally),{id,ally,x,y,z,tx:x,ty:y,tz:z}); d.group.position.set(x,y,z); droneMap.set(id,d); }
+    d.tx=x; d.ty=y; d.tz=z; if(ally) for(const pid of sp) spotted.add(pid); }
+  for(const [id,d] of droneMap) if(!seen.has(id)){ scene.remove(d.group); droneMap.delete(id); }
+  droneSpotted=spotted; }
+function updateDrones(dt){ const now=performance.now();
+  for(const d of droneMap.values()){ const g=d.group; g.position.x+=(d.tx-g.position.x)*Math.min(1,dt*10); g.position.y+=(d.ty-g.position.y)*Math.min(1,dt*10); g.position.z+=(d.tz-g.position.z)*Math.min(1,dt*10);
+    g.position.y+=Math.sin(now*0.004+d.id)*0.003; for(const r of d.rotors) r.rotation.y+=dt*40; }
+  for(const r of remotes.values()){ if(!r.av) continue; const on=droneSpotted.has(r.id)&&r.alive;
+    if(on){ r.seenT=now; if(!r.av.dmark){ const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:markTexDrone,depthTest:false,transparent:true})); sp.scale.set(0.45,0.45,1); sp.position.y=2.75; sp.renderOrder=999; r.av.group.add(sp); r.av.dmark=sp; } }
+    if(r.av.dmark) r.av.dmark.visible=on; } }
+function droneHit(id,p){ const d=droneMap.get(id); if(!d||d.ally) return; spark(p,0xffb347,8); send({t:'dronehit',id}); }
+function launchDrone(){ if(state.mode!=='play'||!P.alive||shopOpen) return;
+  if(srv.r.ph==='freeze'){ toast('Подожди начала раунда'); return; }
+  if(!(inv.drone>0)){ toast('Дрона нет — купи в магазине'); return; }
+  send({t:'drone'}); kick=0.3; }
 let dashT=0, dashCd=0; const dashVel=new THREE.Vector3();
 function dash(){ if(state.mode!=='play'||!P.alive||dashCd>0||shopOpen||srv.r.ph==='freeze'||srv.r.ph==='matchend'||!P.onGround) return;
   let ix=0,iz=0; if(keys.KeyW||keys.ArrowUp) iz+=1; if(keys.KeyS||keys.ArrowDown) iz-=1; if(keys.KeyA||keys.ArrowLeft) ix-=1; if(keys.KeyD||keys.ArrowRight) ix+=1;
@@ -1440,7 +1482,7 @@ function dash(){ if(state.mode!=='play'||!P.alive||dashCd>0||shopOpen||srv.r.ph=
 function leaveToMenu(msg){ const ws=net.ws; net.ws=null; net.joined=false; if(ws) try{ ws.close(); }catch(e){}
   state.mode='menu'; P.alive=false; clearTouch(); for(const r of [...remotes.values()]) removeRemote(r);
   for(const n of nadeList) scene.remove(n.m); nadeList.length=0; for(const r of rocketList) scene.remove(r.m); rocketList.length=0; clearSmokes(); blindT=0;
-  bombMesh.visible=false; srv.b={s:'none',x:0,z:0,tm:0,site:null,c:null}; srv.d=null; syncHolos([]); dashCd=0; shopOpen=false; $('shop').classList.add('hidden');
+  bombMesh.visible=false; srv.b={s:'none',x:0,z:0,tm:0,site:null,c:null}; srv.d=null; syncHolos([]); syncDrones([]); dashCd=0; shopOpen=false; $('shop').classList.add('hidden');
   ['scoped','sniper','zoomable','knife','can-use','can-buy','dead-spec'].forEach(c=>bodyClass(c,false)); camera.fov=BASE_FOV; camera.updateProjectionMatrix();
   if(document.pointerLockElement) document.exitPointerLock();
   hud.classList.add('hidden'); $('joinBox').classList.remove('hidden'); $('joinActs').classList.remove('hidden'); $('pauseNote').classList.add('hidden'); $('pauseBox').classList.add('hidden');
@@ -1518,7 +1560,7 @@ function step(dt){
   if(state.mode==='play'||state.mode==='paused'){
     if(P.alive) updatePlayer(dt); else updateSpectate(dt);
     if(shopOpen&&!canBuy()) closeShop();
-    updateRemotes(dt); updateHolos(dt); updateDrop(dt); updateNades(dt); updateRockets(dt); updateSmokes(dt); updateBlind(dt); updateBomb(dt); updateHUD(dt);
+    updateRemotes(dt); updateDrones(dt); updateHolos(dt); updateDrop(dt); updateNades(dt); updateRockets(dt); updateSmokes(dt); updateBlind(dt); updateBomb(dt); updateHUD(dt);
   } else { menuSpin+=dt*0.08; camera.position.set(Math.sin(menuSpin)*30,14,Math.cos(menuSpin)*30); camera.lookAt(0,0,0); }
   updateSnow(dt); updateFx(dt); }
 function frame(){ requestAnimationFrame(frame); step(Math.min(clock.getDelta(),0.05));
