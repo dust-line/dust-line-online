@@ -51,7 +51,7 @@ class Room{
   pickTeam(pref){ const n=this.teamCount(), other=t=>t==='CT'?'T':'CT';
     if((pref==='CT'||pref==='T')&&n[pref]<C.MAX_TEAM&&n[pref]<=n[other(pref)]) return pref;
     return n.CT<=n.T?'CT':'T'; }
-  sendInv(p){ this.send(p,{t:'inv',money:this.mode==='ffa'?0:p.money,primary:p.inv.primary,secondary:p.inv.secondary,armor:Math.round(p.inv.armor),kit:p.inv.kit,nades:p.inv.nades,free:this.mode==='ffa'}); }
+  sendInv(p){ this.send(p,{t:'inv',money:this.mode==='bomb'?p.money:0,primary:p.inv.primary,secondary:p.inv.secondary,armor:Math.round(p.inv.armor),kit:p.inv.kit,nades:p.inv.nades,free:this.mode!=='bomb'}); }
   canBuy(p){ return p.alive&&(this.mode==='ffa'||(this.phase==='freeze'||this.phase==='wait'||(this.phase==='live'&&Date.now()<this.buyUntil))); }
 
   add(ws,name,pref){
@@ -84,8 +84,8 @@ class Room{
     const c=M.spawn[p.team], o=OFFS[idx%OFFS.length], dir=c.z>0?1:-1;
     return {x:c.x+o[0],z:c.z+o[1]*dir};
   }
-  spawn(p,idx){
-    const q=this.spawnPoint(p,idx||0); GD.collide(q,0.4,this.solids); GD.clampMap(q);
+  spawn(p,idx,at){
+    const q=at?{x:at.x,z:at.z}:this.spawnPoint(p,idx||0); GD.collide(q,0.4,this.solids); GD.clampMap(q);
     Object.assign(p,{x:q.x,y:0,z:q.z,hp:100,alive:true,useP:0,using:false,respawnT:0,lastSt:Date.now()});
     p.yaw=Math.atan2(q.x,q.z);
     this.send(p,{t:'spawn',x:r2(q.x),z:r2(q.z),yaw:r3(p.yaw)}); this.sendInv(p);
@@ -103,7 +103,7 @@ class Room{
   kill(v,att,head,how,wIdx){
     v.alive=false; v.hp=0; v.deaths++; v.useP=0; v.using=false;
     if(att&&att!==v){ att.kills++;
-      if(this.mode!=='ffa'){ const rw=how==='граната'?300:how==='гранатомёт'?200:how==='нож'?1500:(WEAPONS[wIdx]?WEAPONS[wIdx].reward:300);
+      if(this.mode==='bomb'){ const rw=how==='граната'?300:how==='гранатомёт'?200:how==='нож'?1500:(WEAPONS[wIdx]?WEAPONS[wIdx].reward:300);
         att.money=Math.min(C.MAX_MONEY,att.money+rw); this.sendInv(att); this.send(att,{t:'money',add:rw}); } }
     if(this.bomb.s==='carried'&&this.bomb.carrier===v.id) this.dropBomb(v);
     if(this.mode==='ffa'||this.phase==='wait') v.respawnT=C.RESPAWN;
@@ -138,6 +138,18 @@ class Room{
     this.buyUntil=Date.now()+C.BUY_TIME*1000;
     const b=this.bomb; Object.assign(b,{s:'none',x:0,z:0,timer:0,site:null,carrier:null});
     const idx={CT:0,T:0}, ts=[];
+    if(this.mode==='retake'){
+      // the bomb is already planted on a random site; terrorists start around it
+      const key=Math.random()<.5?'A':'B', st=MAPS[this.map].sites[key], bp={x:st.x+rand(-1.5,1.5),z:st.z+rand(-1.5,1.5)};
+      GD.collide(bp,0.3,this.solids); Object.assign(b,{s:'planted',x:bp.x,z:bp.z,site:key,timer:C.BOMB_TIME,carrier:null});
+      let ti=0; const nT=[...this.players.values()].filter(p=>p.team==='T').length||1;
+      for(const p of shuffle([...this.players.values()])){
+        if(!p.survived) p.inv=freshInv(); if(p.team!=='CT') p.inv.kit=false;
+        if(p.team==='T'){ const a=ti++/nT*Math.PI*2+rand(-0.3,0.3), r=rand(4,8); this.spawn(p,0,{x:st.x+Math.cos(a)*r,z:st.z+Math.sin(a)*r}); }
+        else this.spawn(p,idx.CT++); }
+      for(const p of this.players.values())
+        this.send(p,{t:'round',title:'Раунд '+this.round,sub:(p.team==='T'?'Бомба на точке '+key+' — не дай её обезвредить':'Бомба на точке '+key+' — обезвредьте её')+' · B — магазин (бесплатно)'});
+      return; }
     for(const p of shuffle([...this.players.values()])){
       if(!p.survived){ p.inv=freshInv(); } if(p.team!=='CT') p.inv.kit=false;
       this.spawn(p,idx[p.team]++); if(p.team==='T') ts.push(p); }
@@ -154,8 +166,8 @@ class Room{
     const lossMoney=C.LOSS_MONEY+C.LOSS_STEP*Math.min(this.lossStreak[loser],4);
     this.lossStreak[loser]++; this.lossStreak[winner]=0;
     for(const p of this.players.values()){ p.using=false; p.survived=p.alive;
-      const add=p.team===winner?C.WIN_MONEY:lossMoney; p.money=Math.min(C.MAX_MONEY,p.money+add); this.sendInv(p);
-      this.send(p,{t:'round',title:p.team===winner?'Раунд за нами':'Раунд проигран',sub:(winner==='CT'?'Победа спецназа':'Победа террористов')+' — '+reason+' · +$'+add,win:p.team===winner}); }
+      const add=this.mode==='bomb'?(p.team===winner?C.WIN_MONEY:lossMoney):0; p.money=Math.min(C.MAX_MONEY,p.money+add); this.sendInv(p);
+      this.send(p,{t:'round',title:p.team===winner?'Раунд за нами':'Раунд проигран',sub:(winner==='CT'?'Победа спецназа':'Победа террористов')+' — '+reason+(add?' · +$'+add:''),win:p.team===winner}); }
     if(this.score[winner]>=C.MATCH_WIN) this.matchOver=true;
   }
   toWait(){
@@ -221,14 +233,14 @@ class Room{
         return; }
       case 'buy':{
         if(!this.canBuy(p)) return this.send(p,{t:'msg',text:'Магазин закрыт'});
-        const it=String(m.item||''), free=this.mode==='ffa', inv=p.inv; let price=0, ok=true;
+        const it=String(m.item||''), inv=p.inv; let price=0, ok=true;
         if(it.startsWith('w:')){ const wi=Number(it.slice(2)), W=WEAPONS[wi]; if(!W||W.knife||wi===1) return; price=W.price;
           if(inv.primary===wi||inv.secondary===wi) ok=false; }
         else if(it==='armor'){ price=GEAR.armor; if(inv.armor>=100) ok=false; }
         else if(it==='kit'){ price=GEAR.kit; if(inv.kit||this.mode==='ffa'||p.team!=='CT') ok=false; }
         else if(it in NADE_MAX){ price=GEAR[it]; if(inv.nades[it]>=NADE_MAX[it]) ok=false; }
         else return;
-        if(free) price=0;
+        if(this.mode!=='bomb') price=0;
         if(!ok||p.money<price) return this.send(p,{t:'buyfail'});
         p.money-=price;
         if(it.startsWith('w:')){ const wi=Number(it.slice(2)); if(WEAPONS[wi].slot==='s') inv.secondary=wi; else inv.primary=wi; this.send(p,{t:'bought',w:wi}); }
@@ -236,7 +248,7 @@ class Room{
         this.sendInv(p); return; }
       case 'use': p.using=!!m.on; return;
       case 'team':{
-        if(this.mode!=='bomb') return;
+        if(this.mode==='ffa') return;
         const t=m.team; if((t!=='CT'&&t!=='T')||t===p.team) return;
         if(this.teamCount()[t]>=C.MAX_TEAM){ this.send(p,{t:'msg',text:'В этой команде уже '+C.MAX_TEAM+' игроков'}); return; }
         if(this.bomb.s==='carried'&&this.bomb.carrier===p.id) this.dropBomb(p);
@@ -336,7 +348,7 @@ wss.on('connection',ws=>{
     if(m.t==='join'){
       if(p) return;
       const code=cleanCode(m.room); let r=rooms.get(code);
-      if(!r){ const mode=m.mode==='ffa'?'ffa':'bomb'; let map=MAPS[m.map]?m.map:'port'; if(mode==='bomb'&&!MAPS[map].sites) map='port';
+      if(!r){ const mode=['ffa','retake'].includes(m.mode)?m.mode:'bomb'; let map=MAPS[m.map]?m.map:'port'; if(mode!=='ffa'&&!MAPS[map].sites) map='port';
         r=new Room(code,mode,map); rooms.set(code,r); }
       if(r.players.size>=r.max){ ws.send(JSON.stringify({t:'error',text:'Комната «'+code+'» заполнена'})); return; }
       room=r; p=r.add(ws,cleanName(m.name),m.team); return; }

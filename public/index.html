@@ -328,7 +328,7 @@ body.touch #boardBtn{display:block}
         <label class="label" for="roomCode">Комната</label>
         <input class="inp" id="roomCode" maxlength="16" autocomplete="off" placeholder="main">
         <div class="label">Режим новой комнаты</div>
-        <div class="row"><button class="seg" data-mode="bomb">Обычный (бомба)</button><button class="seg" data-mode="ffa">Бой насмерть</button></div>
+        <div class="row"><button class="seg" data-mode="bomb">Обычный (бомба)</button><button class="seg" data-mode="retake">Зачистка</button><button class="seg" data-mode="ffa">Бой насмерть</button></div>
         <p class="modedesc" id="modeDesc"></p>
         <div class="label">Карта новой комнаты</div>
         <div class="row" id="mapRow">
@@ -967,7 +967,7 @@ function onMsg(m){
       elFeed.innerHTML=''; for(const k in last) delete last[k];
       $('menu').classList.add('hidden'); hud.classList.remove('hidden'); $('joinBtn').disabled=false; $('joinBtn').textContent='Войти в игру';
       state.mode='play'; P.alive=false; lock(); clock.getDelta();
-      sysFeed('Комната «'+m.room+'» — '+(m.mode==='ffa'?'бой насмерть':'обычный режим')+', карта «'+MAPS[m.map].name+'»'); return;
+      sysFeed('Комната «'+m.room+'» — '+MODE_NAME[m.mode]+', карта «'+MAPS[m.map].name+'»'); return;
     case 'error': joinFail(m.text); try{ net.ws.close(); }catch(e){} return;
     case 'snap': onSnap(m); return;
     case 'spawn': resetPlayer(m.x,m.z,m.yaw); net.pendingSpawn=true; return;
@@ -1164,7 +1164,7 @@ let moneyPlus=0, moneyPlusT=0;
 const GUN_DESC={0:'Мощный и универсальный',2:'Убивает с одного выстрела',4:'Быстрый, точный на бегу',5:'Сносит вблизи, бесполезен вдали',6:'Точный, слабая отдача',7:'100 патронов, но медленный',
   8:'Мощный пистолет, 6 патронов',9:'Дешёвая и лёгкая, бегаешь быстро',10:'Стреляет очередями',11:'Дробовик без передёргивания',12:'Автомат с приближением (ПКМ)',13:'Ракета взрывается при попадании'};
 const PIERCE_TXT=n=>n>1?' · пробивает '+n+(n<5?' человека':' человек'):'';
-function canBuy(){ return state.mode==='play'&&P.alive&&(net.free||srv.r.ph==='freeze'||srv.r.ph==='wait'||(srv.r.ph==='live'&&buyLeft()>0)); }
+function canBuy(){ return state.mode==='play'&&P.alive&&(isFFA()||srv.r.ph==='freeze'||srv.r.ph==='wait'||(srv.r.ph==='live'&&buyLeft()>0)); }
 function toggleShop(){ if(shopOpen){ closeShop(); return; } if(!canBuy()){ toast('Магазин работает только в начале раунда'); return; } openShop(); }
 function openShop(){ shopOpen=true; input.fire=false; clearTouch(); $('shop').classList.remove('hidden'); renderShop(); if(document.pointerLockElement) document.exitPointerLock(); }
 function closeShop(){ if(!shopOpen) return; shopOpen=false; $('shop').classList.add('hidden'); if(!isTouch&&state.mode==='play') lock(); }
@@ -1184,7 +1184,7 @@ function renderShop(){ $('shopMoney').textContent=net.free?'':'$'+net.money;
   shopItem(ge,'Бронежилет'+(inv.armor>0&&inv.armor<100?' ('+inv.armor+')':''),priceOf(GD.GEAR.armor),'Пули наносят на 50% меньше урона',inv.armor>=100,'armor');
   if(!isFFA()&&net.team==='CT') shopItem(ge,'Сапёрный набор',priceOf(GD.GEAR.kit),'Обезвреживание бомбы в 2 раза быстрее',inv.kit,'kit');
   for(const k of ['he','smoke','flash']) shopItem(n,{he:'Осколочная',smoke:'Дымовая',flash:'Световая'}[k]+' · '+nades[k]+'/'+GD.NADE_MAX[k],priceOf(GD.GEAR[k]),GD.NADE_MAX[k]>1?'Можно купить 2':'Одна на раунд',nades[k]>=GD.NADE_MAX[k],k);
-  $('shopHint').textContent=net.free?'В бою насмерть всё бесплатно и магазин работает всегда.':'Деньги дают за убийства и раунды. Если выживешь, купленное останется на следующий раунд.'; }
+  $('shopHint').textContent=isFFA()?'В бою насмерть всё бесплатно и магазин работает всегда.':net.mode==='retake'?'В зачистке всё бесплатно, магазин открыт в начале раунда. Если выживешь, купленное останется.':'Деньги дают за убийства и раунды. Если выживешь, купленное останется на следующий раунд.'; }
 
 /* ---------- HUD ---------- */
 const hud=$('hud'), elHp=$('hpNum'), elHpBar=$('hpBar'), elHealth=$('health'), elAmmo=$('ammoNum'), elRes=$('resNum'), elW=$('wname'), elAmmoBox=$('ammo'),
@@ -1225,10 +1225,10 @@ function updateHUD(dt){
     else if(b.s==='dropped'&&net.team==='T') hint='Бомба лежит на земле — подбери её (отмечена на радаре)';
     else if(b.s==='planted'&&net.team==='CT') hint='Бомба на точке '+b.site+' — обезвредь её';
     else if(b.s==='planted'&&net.team==='T') hint='Охраняй бомбу на точке '+b.site; }
-  if(!hint&&P.alive&&canBuy()&&!shopOpen&&!net.free) hint=(r.ph==='freeze'?'Старт через '+Math.ceil(timeLeft())+' · ':'')+(isTouch?'кнопка «магазин» — купить оружие':'B — магазин')+(r.ph==='live'?' · ещё '+Math.ceil(buyLeft())+' с':'');
+  if(!hint&&P.alive&&canBuy()&&!shopOpen&&!isFFA()) hint=(r.ph==='freeze'?'Старт через '+Math.ceil(timeLeft())+' · ':'')+(isTouch?'кнопка «магазин» — купить оружие':'B — магазин')+(r.ph==='live'?' · ещё '+Math.ceil(buyLeft())+' с':'');
   setText(elHint,'hint',hint); elAct.classList.toggle('show',act>0); elActFill.style.width=Math.min(100,act*100)+'%'; setText(elActLabel,'al',label);
   bodyClass('can-use',ui.canPlant||ui.canDefuse); bodyClass('can-buy',canBuy());
-  if(shopOpen) setText($('shopTime'),'st',net.free?'всё бесплатно':(r.ph==='live'?'ещё '+Math.ceil(buyLeft())+' с':''));
+  if(shopOpen) setText($('shopTime'),'st',(net.free?'всё бесплатно':'')+(!isFFA()&&r.ph==='live'?(net.free?' · ':'')+'ещё '+Math.ceil(buyLeft())+' с':''));
   let spTxt=''; if(!P.alive){ if(isFFA()||r.ph==='wait') spTxt='Возрождение через несколько секунд…'; else { const sb=spectTarget(); spTxt=sb?'Наблюдение: '+sb.name+(isTouch?' · коснись — следующий':' · клик — следующий'):'Ждём следующего раунда'; } }
   setText(elSpect,'sp',spTxt); bodyClass('dead-spec',!P.alive);
   const spread=currentSpread(), gap=5+spread*380;
@@ -1245,7 +1245,7 @@ function renderBoard(){
   const table=list=>{ const t=document.createElement('table'); const hr=t.insertRow(); ['Игрок','Убийства','Смерти'].forEach((h,i)=>{ const th=document.createElement('th'); th.textContent=h; if(i) th.className='n'; hr.append(th); });
     for(const p of list){ const tr=t.insertRow(); if(p.id===net.id) tr.className='me'; if(!p.alive&&!isFFA()) tr.className+=' dead';
       const a=tr.insertCell(); a.textContent=p.name; const b=tr.insertCell(); b.textContent=p.k; b.className='n'; const c=tr.insertCell(); c.textContent=p.d; c.className='n'; } return t; };
-  elBoard.innerHTML=''; const h=document.createElement('h3'); h.textContent='«'+net.room+'» · '+MAPS[net.map].name+(isFFA()?' · бой насмерть':' · спецназ '+srv.r.ct+' : '+srv.r.tt+' террористы'); elBoard.append(h);
+  elBoard.innerHTML=''; const h=document.createElement('h3'); h.textContent='«'+net.room+'» · '+MAPS[net.map].name+(isFFA()?' · бой насмерть':' · '+MODE_NAME[net.mode]+' · спецназ '+srv.r.ct+' : '+srv.r.tt+' террористы'); elBoard.append(h);
   const cols=document.createElement('div'); cols.className=isFFA()?'cols one':'cols';
   if(isFFA()) cols.append(table(all));
   else for(const tm of ['CT','T']){ const box=document.createElement('div'); const hd=document.createElement('div'); hd.className=tm==='CT'?'head-ct':'head-tt'; hd.textContent=tm==='CT'?'Спецназ':'Террористы'; box.append(hd,table(all.filter(p=>p.team===tm))); cols.append(box); }
@@ -1350,26 +1350,28 @@ function updateSpectate(dt){ const r=spectTarget();
   camera.lookAt(r.x+fx_*6,r.y+1.4,r.z+fz*6); }
 
 /* ---------- menus ---------- */
-const MODE_DESC={bomb:'Спецназ против террористов, до 5 на 5. Бомба, точки A и B, магазин и деньги. Матч до '+C.MATCH_WIN+' побед. Нужен хотя бы один игрок в каждой команде.',
+const MODE_NAME={bomb:'обычный режим',retake:'зачистка',ffa:'бой насмерть'};
+const MODE_DESC={retake:'Бомба уже заложена на случайной точке. Террористы появляются рядом и охраняют её, спецназ должен прорваться и обезвредить её за '+C.BOMB_TIME+' секунд. Магазин бесплатный, но работает только в начале раунда. Матч до '+C.MATCH_WIN+' побед.',
+  bomb:'Спецназ против террористов, до 5 на 5. Бомба, точки A и B, магазин и деньги. Матч до '+C.MATCH_WIN+' побед. Нужен хотя бы один игрок в каждой команде.',
   ffa:'Каждый сам за себя, возрождение через '+C.RESPAWN+' секунды. Магазин всегда открыт, и всё бесплатно. Побеждает первый, кто наберёт '+C.FFA_KILLS+' убийств.'};
 function syncMenu(){
   document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===settings.mode)));
   document.querySelectorAll('[data-team]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.team===settings.team)));
-  if(settings.mode==='bomb'&&!MAPS[settings.map].sites) settings.map='port';
-  document.querySelectorAll('[data-map]').forEach(b=>{ const bad=settings.mode==='bomb'&&!MAPS[b.dataset.map].sites; b.classList.toggle('locked',bad); b.setAttribute('aria-pressed',String(b.dataset.map===settings.map)); b.title=bad?'Только для боя насмерть':''; });
+  if(settings.mode!=='ffa'&&!MAPS[settings.map].sites) settings.map='port';
+  document.querySelectorAll('[data-map]').forEach(b=>{ const bad=settings.mode!=='ffa'&&!MAPS[b.dataset.map].sites; b.classList.toggle('locked',bad); b.setAttribute('aria-pressed',String(b.dataset.map===settings.map)); b.title=bad?'Только для боя насмерть':''; });
   $('modeDesc').textContent=MODE_DESC[settings.mode]; $('teamBox').classList.toggle('hidden',settings.mode==='ffa');
   $('sens').value=settings.sens; $('sensVal').textContent=Number(settings.sens).toFixed(1);
   if(state.mode==='menu') loadMap(settings.map); }
 document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>{ settings.mode=b.dataset.mode; store.set('mode',settings.mode); syncMenu(); }));
 document.querySelectorAll('[data-team]').forEach(b=>b.addEventListener('click',()=>{ settings.team=b.dataset.team; store.set('team',settings.team); syncMenu(); }));
-document.querySelectorAll('[data-map]').forEach(b=>b.addEventListener('click',()=>{ if(settings.mode==='bomb'&&!MAPS[b.dataset.map].sites) return; settings.map=b.dataset.map; store.set('map',settings.map); syncMenu(); }));
+document.querySelectorAll('[data-map]').forEach(b=>b.addEventListener('click',()=>{ if(settings.mode!=='ffa'&&!MAPS[b.dataset.map].sites) return; settings.map=b.dataset.map; store.set('map',settings.map); syncMenu(); }));
 $('sens').addEventListener('input',()=>{ settings.sens=Number($('sens').value); store.set('sens',settings.sens); $('sensVal').textContent=settings.sens.toFixed(1); });
 $('nick').value=settings.name; $('roomCode').value=settings.room==='main'?'':settings.room;
 if(!MODE_DESC[settings.mode]) settings.mode='bomb'; if(!MAPS[settings.map]) settings.map='port';
 $('joinBtn').addEventListener('click',()=>{ audio(); connect(); });
 [$('nick'),$('roomCode')].forEach(i=>i.addEventListener('keydown',e=>{ if(e.key==='Enter'){ audio(); connect(); } }));
 function openPause(){ if(state.mode!=='play') return; state.mode='paused'; clearTouch(); if(shopOpen){ shopOpen=false; $('shop').classList.add('hidden'); } if(document.pointerLockElement) document.exitPointerLock();
-  $('menuSub').textContent='Комната «'+net.room+'», карта «'+MAPS[net.map].name+'», '+(isFFA()?'бой насмерть':'ты за '+(net.team==='CT'?'спецназ':'террористов'))+'. Игра продолжается, пока ты в меню.';
+  $('menuSub').textContent='Комната «'+net.room+'», карта «'+MAPS[net.map].name+'», '+(isFFA()?'бой насмерть':MODE_NAME[net.mode]+', ты за '+(net.team==='CT'?'спецназ':'террористов'))+'. Игра продолжается, пока ты в меню.';
   $('joinBox').classList.add('hidden'); $('joinActs').classList.add('hidden'); $('pauseNote').classList.remove('hidden'); $('pauseBox').classList.remove('hidden');
   $('swapBtn').classList.toggle('hidden',isFFA()); $('swapBtn').textContent=net.team==='CT'?'Перейти за террористов':'Перейти за спецназ';
   $('menu').classList.remove('hidden'); }
