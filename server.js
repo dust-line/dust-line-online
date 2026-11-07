@@ -12,6 +12,8 @@ const MIME={'.html':'text/html; charset=utf-8','.js':'application/javascript; ch
 /* ---------- раздача файлов игры ---------- */
 const server=http.createServer((req,res)=>{
   let url; try{ url=decodeURIComponent((req.url||'/').split('?')[0]); }catch(e){ res.writeHead(400); return res.end(); }
+  if(url==='/rooms'){ const list=[...rooms.values()].map(r=>({code:r.code,mode:r.mode,map:r.map,players:[...r.players.values()].length,max:r.max}));
+    res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-cache'}); return res.end(JSON.stringify(list)); }
   if(url==='/healthz'){ res.writeHead(200,{'Content-Type':'text/plain'}); return res.end('ok'); }
   let file;
   if(url==='/shared/game-data.js') file=path.join(__dirname,'shared','game-data.js');
@@ -30,7 +32,7 @@ const shuffle=a=>{ a=a.slice(); for(let i=a.length-1;i>0;i--){ const j=(Math.ran
 const cleanName=s=>(String(s||'').replace(/[\u0000-\u001f<>]/g,'').trim().slice(0,16))||('Игрок'+((Math.random()*900+100)|0));
 const cleanCode=s=>(String(s||'').toLowerCase().replace(/[^a-z0-9а-яё_-]/gi,'').slice(0,16))||'main';
 const OFFS=[[0,0],[-2.5,0],[2.5,0],[-5,0],[5,0],[0,2.5],[-2.5,2.5],[2.5,2.5],[-5,2.5],[5,2.5]];
-const freshInv=()=>({primary:null,secondary:1,armor:0,kit:false,nades:{he:0,smoke:0,flash:0,holo:0},drone:0});
+const freshInv=()=>({primary:null,secondary:1,armor:0,kit:false,nades:{he:0,smoke:0,flash:0,holo:0},drone:0,trap:0});
 
 /* ---------- комнаты ---------- */
 let nextId=1;
@@ -38,13 +40,21 @@ const rooms=new Map();
 class Room{
   constructor(code,mode,map){
     this.code=code; this.mode=mode; this.max=mode==='ffa'?C.MAX_FFA:C.MAX_BOMB;
-    this.map=map; const md=MAPDATA[map]; this.solids=md.solids; this.boxes=md.boxes3;
+    this.traps=[]; this.vote=null; this.setMap(map);
     this.players=new Map(); this.nades=[]; this.rockets=[]; this.nid=1;
     this.phase=mode==='ffa'?'live':'wait'; this.timer=mode==='ffa'?C.FFA_TIME:0; this.startT=3; this.buyUntil=0;
     this.round=0; this.score={CT:0,T:0}; this.lossStreak={CT:0,T:0}; this.matchOver=false; this.snapAcc=0;
     this.bomb={s:'none',x:0,z:0,timer:0,site:null,carrier:null};
     this.drop={s:'none',x:0,z:0,h:0,t:0}; this.hostages=[]; this.dropAt=mode==='ffa'?Date.now()+45000:0; this.holos=[]; this.drones=[];
   }
+  setMap(map){ this.map=map; this.boxesAll=MAPDATA[map].boxes; this.broken=new Set(); this.crateHP=new Map(); this.rebuildGeom();
+    const W=GD.WEATHERS; this.weather=map==='city'?['night','night','fog','rain'][(Math.random()*4)|0]:W[(Math.random()*W.length)|0]; }
+  rebuildGeom(){ const live=this.boxesAll.filter((b,i)=>!this.broken.has(i)); this.solids=GD.buildSolids(live); this.boxes=GD.buildBoxes(live); }
+  resetCrates(){ if(!this.broken.size&&!this.crateHP.size) return; this.broken.clear(); this.crateHP.clear(); this.rebuildGeom(); this.broadcast({t:'crates',broken:[]}); }
+  hitCrate(i,dmg){ const b=this.boxesAll[i]; if(!b||b[5]!=='crate'||this.broken.has(i)) return;
+    const hp=(this.crateHP.has(i)?this.crateHP.get(i):C.CRATE_HP)-dmg; if(hp>0){ this.crateHP.set(i,hp); return; }
+    const ids=[i]; this.boxesAll.forEach((o,j)=>{ if(j!==i&&o[5]==='crate'&&!this.broken.has(j)&&Math.abs(o[0]-b[0])<0.01&&Math.abs(o[1]-b[1])<0.01&&o[6]>b[6]) ids.push(j); });
+    for(const j of ids) this.broken.add(j); this.rebuildGeom(); this.broadcast({t:'crate',ids}); }
   send(p,o){ if(p.ws.readyState===1) p.ws.send(JSON.stringify(o)); }
   broadcast(o,except){ const s=JSON.stringify(o); for(const p of this.players.values()) if(p!==except&&p.ws.readyState===1) p.ws.send(s); }
   teamCount(){ const n={CT:0,T:0}; for(const p of this.players.values()) n[p.team]++; return n; }
@@ -52,7 +62,7 @@ class Room{
   pickTeam(pref){ const n=this.teamCount(), other=t=>t==='CT'?'T':'CT';
     if((pref==='CT'||pref==='T')&&n[pref]<C.MAX_TEAM&&n[pref]<=n[other(pref)]) return pref;
     return n.CT<=n.T?'CT':'T'; }
-  sendInv(p){ this.send(p,{t:'inv',money:this.eco()?p.money:0,primary:p.inv.primary,secondary:p.inv.secondary,armor:Math.round(p.inv.armor),kit:p.inv.kit,nades:p.inv.nades,drone:p.inv.drone||0,free:!this.eco()}); }
+  sendInv(p){ this.send(p,{t:'inv',money:this.eco()?p.money:0,primary:p.inv.primary,secondary:p.inv.secondary,armor:Math.round(p.inv.armor),kit:p.inv.kit,nades:p.inv.nades,drone:p.inv.drone||0,trap:p.inv.trap||0,free:!this.eco()}); }
   eco(){ return this.mode==='bomb'||this.mode==='hostage'; }
   canBuy(p){ return p.alive&&(this.mode==='ffa'||(this.phase==='freeze'||this.phase==='wait'||(this.phase==='live'&&Date.now()<this.buyUntil))); }
 
@@ -60,9 +70,9 @@ class Room{
     const id=nextId++;
     const team=this.mode==='ffa'?(Math.random()<.5?'CT':'T'):this.pickTeam(pref);
     const p={id,ws,name,team,x:0,y:0,z:0,yaw:0,pitch:0,w:1,sp:0,hp:100,alive:false,kills:0,deaths:0,money:C.START_MONEY,inv:freshInv(),
-      using:false,useP:0,dropP:0,lastDash:0,dashUntil:0,lastShot:0,lastKnife:0,respawnT:0,lastSt:Date.now(),survived:false};
+      using:false,useP:0,dropP:0,lastChat:0,lastRadio:0,lastDash:0,dashUntil:0,lastShot:0,lastKnife:0,respawnT:0,lastSt:Date.now(),survived:false};
     this.players.set(id,p);
-    this.send(p,{t:'welcome',id,room:this.code,mode:this.mode,map:this.map,team});
+    this.send(p,{t:'welcome',id,room:this.code,mode:this.mode,map:this.map,team,weather:this.weather,broken:[...this.broken]});
     this.broadcast({t:'msg',text:name+' заходит в игру'},p);
     if(this.mode==='ffa'||this.phase==='wait') this.spawn(p,this.teamIndex(p));
     else this.send(p,{t:'round',title:'Раунд уже идёт',sub:'Ты появишься в следующем раунде'});
@@ -109,10 +119,11 @@ class Room{
         att.money=Math.min(C.MAX_MONEY,att.money+rw); this.sendInv(att); this.send(att,{t:'money',add:rw}); } }
     if(this.bomb.s==='carried'&&this.bomb.carrier===v.id) this.dropBomb(v);
     if(this.mode==='ffa'||this.phase==='wait') v.respawnT=C.RESPAWN;
-    this.broadcast({t:'kill',k:att&&att!==v?att.id:0,kn:att&&att!==v?att.name:'',kt:att?att.team:'',v:v.id,vn:v.name,vt:v.team,head:!!head,how:how||''});
+    this.broadcast({t:'kill',k:att&&att!==v?att.id:0,kn:att&&att!==v?att.name:'',kt:att?att.team:'',v:v.id,vn:v.name,vt:v.team,head:!!head,how:how||'',w:wIdx==null?-1:wIdx,khp:att&&att!==v?Math.max(0,Math.round(att.hp)):0,kx:att?r2(att.x):0,kz:att?r2(att.z):0});
   }
   canHurt(a,b){ return this.mode==='ffa'||a===b||a.team!==b.team; }
   explode(o,owner,how,R,dEnemy,dSelf){
+    this.boxesAll.forEach((b,i)=>{ if(b[5]!=='crate'||this.broken.has(i)) return; const d=Math.hypot(b[0]-o.x,b[6]+1-o.y,b[1]-o.z); if(d<R+1) this.hitCrate(i,dEnemy*Math.max(0.3,1-d/R)); });
     for(const p of this.players.values()){ if(!p.alive) continue;
       const d=Math.hypot(p.x-o.x,p.y+1-o.y,p.z-o.z); if(d>=R) continue;
       if(owner&&p!==owner&&!this.canHurt(owner,p)) continue;
@@ -137,7 +148,7 @@ class Room{
     this.startRound(); }
   startRound(){
     this.round++; this.phase='freeze'; this.timer=C.FREEZE_TIME; this.nades=[]; this.rockets=[];
-    this.buyUntil=Date.now()+C.BUY_TIME*1000; this.drop.s='none'; this.holos=[]; this.drones=[]; this.dropAt=Date.now()+(C.FREEZE_TIME+C.DROP_DELAY)*1000;
+    this.buyUntil=Date.now()+C.BUY_TIME*1000; this.drop.s='none'; this.holos=[]; this.drones=[]; this.traps=[]; this.resetCrates(); this.dropAt=Date.now()+(C.FREEZE_TIME+C.DROP_DELAY)*1000;
     const b=this.bomb; Object.assign(b,{s:'none',x:0,z:0,timer:0,site:null,carrier:null});
     const idx={CT:0,T:0}, ts=[];
     if(this.mode==='hostage'){
@@ -247,15 +258,22 @@ class Room{
         else if(it==='armor'){ price=GEAR.armor; if(inv.armor>=100) ok=false; }
         else if(it==='kit'){ price=GEAR.kit; if(inv.kit||this.mode==='ffa'||this.mode==='hostage'||p.team!=='CT') ok=false; }
         else if(it==='drone'){ price=GEAR.drone; if(inv.drone>=1) ok=false; }
+        else if(it==='trap'){ price=GEAR.trap; if(inv.trap>=1) ok=false; }
         else if(it in NADE_MAX){ price=GEAR[it]; if(inv.nades[it]>=NADE_MAX[it]) ok=false; }
         else return;
         if(!this.eco()) price=0;
         if(!ok||p.money<price) return this.send(p,{t:'buyfail'});
         p.money-=price;
         if(it.startsWith('w:')){ const wi=Number(it.slice(2)); if(WEAPONS[wi].slot==='s') inv.secondary=wi; else inv.primary=wi; this.send(p,{t:'bought',w:wi}); }
-        else if(it==='armor') inv.armor=100; else if(it==='kit') inv.kit=true; else if(it==='drone') inv.drone=1; else inv.nades[it]++;
+        else if(it==='armor') inv.armor=100; else if(it==='kit') inv.kit=true; else if(it==='drone') inv.drone=1; else if(it==='trap') inv.trap=1; else inv.nades[it]++;
         this.sendInv(p); return; }
       case 'use': p.using=!!m.on; return;
+      case 'chat':{ if(now-p.lastChat<700) return; const text=GD.cleanChat(m.text); if(!text) return; p.lastChat=now;
+        const teamOnly=!!m.team&&this.mode!=='ffa', o={t:'chat',id:p.id,name:p.name,team:p.team,text,teamOnly,dead:!p.alive};
+        if(teamOnly){ for(const q of this.players.values()) if(q.team===p.team) this.send(q,o); } else this.broadcast(o); return; }
+      case 'radio':{ if(now-p.lastRadio<900) return; const cmd=m.cmd|0; if(cmd<0||cmd>=GD.RADIO.length) return; p.lastRadio=now;
+        const pt=vec(m.pt), o={t:'radio',id:p.id,name:p.name,team:p.team,cmd,pt:pt?pt.map(r2):null,x:r2(p.x),z:r2(p.z)};
+        if(this.mode==='ffa') this.broadcast(o); else for(const q of this.players.values()) if(q.team===p.team) this.send(q,o); return; }
       case 'dash': if(!p.alive||now-p.lastDash<C.DASH_CD*1000-300) return; p.lastDash=now; p.dashUntil=now+700; return;
       case 'drone':{
         if(!p.alive||!live||!(p.inv.drone>0)) return; p.inv.drone--; this.sendInv(p);
@@ -264,6 +282,14 @@ class Room{
         const q={x:tx,z:tz}; GD.clampMap(q);
         const d={id:this.nid++,owner:p.id,team:p.team,x:p.x,y:1.6,z:p.z,tx:q.x,tz:q.z,t:C.DRONE_TIME+1,scan:0,spotted:[]};
         this.drones.push(d); this.broadcast({t:'drone',ev:'up',id:d.id,name:p.name}); return; }
+      case 'crate':{ if(!p.alive||now-(p.lastCrate||0)<40) return; p.lastCrate=now; const i=m.id|0, b=this.boxesAll[i], W=WEAPONS[m.w|0];
+        if(!b||Math.hypot(b[0]-p.x,b[1]-p.z)>(W&&W.knife?3.5:120)) return; this.hitCrate(i,W&&W.knife?45:W&&W.dmg?W.dmg:30); return; }
+      case 'trap':{ if(!p.alive||!live||!(p.inv.trap>0)) return; p.inv.trap--; this.sendInv(p);
+        const q={x:p.x-Math.sin(p.yaw)*1.1,z:p.z-Math.cos(p.yaw)*1.1}; GD.collide(q,0.3,this.solids); GD.clampMap(q);
+        this.traps.push({id:this.nid++,owner:p.id,team:p.team,x:q.x,z:q.z,arm:C.TRAP_ARM,t:this.mode==='ffa'?90:999,fuse:-1}); return; }
+      case 'traphit':{ if(!p.alive) return; const i=this.traps.findIndex(t=>t.id===(m.id|0)); if(i<0) return; const t=this.traps[i];
+        if(this.mode==='ffa'?t.owner===p.id:t.team===p.team) return; this.traps.splice(i,1); this.broadcast({t:'trapev',ev:'gone',id:t.id,x:r2(t.x),z:r2(t.z),by:p.name}); return; }
+      case 'vote':{ if(!this.vote||!this.vote.options.includes(m.map)) return; this.vote.votes.set(p.id,m.map); this.sendTally(); return; }
       case 'dronehit':{ if(!p.alive) return; const i=this.drones.findIndex(d=>d.id===(m.id|0)); if(i<0) return; const d=this.drones[i];
         if(this.mode==='ffa'?d.owner===p.id:d.team===p.team) return;
         if(Math.hypot(d.x-p.x,d.z-p.z)>120) return; this.drones.splice(i,1);
@@ -294,7 +320,7 @@ class Room{
         else { const owner=this.players.get(r.owner); for(const p of this.players.values()) if(p.alive&&p.id!==r.owner&&(!owner||this.canHurt(owner,p))&&Math.hypot(p.x-r.p.x,p.z-r.p.z)<0.65&&r.p.y>p.y&&r.p.y<p.y+2.1){ boom=true; break; } } }
       if(boom){ this.rockets.splice(i,1); const o={x:r.p.x,y:Math.max(r.p.y,0.35),z:r.p.z};
         this.broadcast({t:'boom',rid:r.id,x:r2(o.x),y:r2(o.y),z:r2(o.z)}); this.explode(o,this.players.get(r.owner)||null,'гранатомёт',C.NADE_R,140,85); } }
-    this.tickDrop(dt); this.tickHolos(dt); this.tickDrones(dt);
+    this.tickDrop(dt); this.tickHolos(dt); this.tickDrones(dt); this.tickTraps(dt);
     if(this.mode==='ffa') this.tickFFA(dt); else this.tickBomb(dt);
     this.snapAcc+=dt; if(this.snapAcc>=0.05){ this.snapAcc=0; this.snapshot(); }
   }
@@ -310,6 +336,25 @@ class Room{
         if(p.dropP>=C.DROP_OPEN){ p.dropP=0; d.s='none'; p.inv.primary=14; this.send(p,{t:'bought',w:14}); this.sendInv(p);
           this.broadcast({t:'drop',ev:'taken',name:p.name,team:p.team}); if(this.mode==='ffa') this.dropAt=now+C.DROP_FFA*1000; return; } }
       else p.dropP=0; } }
+  // proximity trap: arms after 1.5 s, goes off when an enemy steps close
+  tickTraps(dt){ for(let i=this.traps.length-1;i>=0;i--){ const t=this.traps[i]; t.arm-=dt; t.t-=dt;
+      if(t.t<=0){ this.traps.splice(i,1); this.broadcast({t:'trapev',ev:'gone',id:t.id,x:r2(t.x),z:r2(t.z)}); continue; }
+      if(t.fuse>=0){ t.fuse-=dt; if(t.fuse<=0){ this.traps.splice(i,1); const o={x:t.x,y:0.4,z:t.z};
+          this.broadcast({t:'boom',x:r2(o.x),y:0.4,z:r2(o.z)}); this.explode(o,this.players.get(t.owner)||null,'ловушка',5.5,130,60); } continue; }
+      if(t.arm>0) continue;
+      for(const p of this.players.values()){ if(!p.alive||p.id===t.owner||(this.mode!=='ffa'&&p.team===t.team)) continue;
+        if(Math.hypot(p.x-t.x,p.z-t.z)<C.TRAP_R){ t.fuse=0.35; this.broadcast({t:'trapev',ev:'trig',id:t.id,x:r2(t.x),z:r2(t.z)});
+          const o={t:'trapev',ev:'alert',x:r2(t.x),z:r2(t.z),name:p.name}; if(this.mode==='ffa'){ const ow=this.players.get(t.owner); if(ow) this.send(ow,o); } else for(const q of this.players.values()) if(q.team===t.team) this.send(q,o);
+          break; } } } }
+  // map vote at the end of a match
+  startVote(){ const ok=Object.keys(MAPS).filter(k=>this.mode==='ffa'?true:this.mode==='hostage'?k==='embassy':!!MAPS[k].sites);
+    if(ok.length<2){ this.vote=null; return; } const opts=[this.map,...shuffle(ok.filter(k=>k!==this.map)).slice(0,2)];
+    this.vote={options:opts,votes:new Map()}; this.broadcast({t:'vote',options:opts,secs:C.VOTE_TIME}); }
+  sendTally(){ const tally={}; for(const o of this.vote.options) tally[o]=0; for(const v of this.vote.votes.values()) tally[v]++; this.broadcast({t:'votes',tally}); }
+  finishVote(){ const v=this.vote; this.vote=null; let map=this.map;
+    if(v){ const tally={}; for(const o of v.options) tally[o]=0; for(const x of v.votes.values()) tally[x]++; const best=Math.max(...Object.values(tally));
+      const top=v.options.filter(o=>tally[o]===best); map=top[(Math.random()*top.length)|0]; }
+    this.setMap(map); this.traps=[]; this.broadcast({t:'map',map,weather:this.weather}); }
   // recon drone: flies forward, hovers and reveals enemies to the owner's team
   tickDrones(dt){ for(let i=this.drones.length-1;i>=0;i--){ const d=this.drones[i]; d.t-=dt;
       if(d.t<=0){ this.drones.splice(i,1); this.broadcast({t:'drone',ev:'gone',id:d.id,x:r2(d.x),y:r2(d.y),z:r2(d.z)}); continue; }
@@ -350,14 +395,14 @@ class Room{
     this.explode(o,this.players.get(n.owner)||null,'граната',C.NADE_R,140,85);
   }
   tickFFA(dt){
-    if(this.phase==='matchend'){ this.timer-=dt; if(this.timer<=0){ this.phase='live'; this.timer=C.FFA_TIME;
+    if(this.phase==='matchend'){ this.timer-=dt; if(this.timer<=0){ this.finishVote(); this.resetCrates(); this.phase='live'; this.timer=C.FFA_TIME;
         for(const p of this.players.values()){ p.kills=0; p.deaths=0; this.spawn(p,0); }
         this.broadcast({t:'round',title:'Новый бой',sub:'Первый, кто наберёт '+C.FFA_KILLS+' убийств, побеждает'}); } return; }
     this.timer-=dt;
     for(const p of this.players.values()) if(!p.alive){ p.respawnT-=dt; if(p.respawnT<=0) this.spawn(p,0); }
     let leader=null; for(const p of this.players.values()) if(!leader||p.kills>leader.kills) leader=p;
     if(leader&&(leader.kills>=C.FFA_KILLS||this.timer<=0)){
-      this.phase='matchend'; this.timer=C.MATCH_END_TIME;
+      this.phase='matchend'; this.timer=C.VOTE_TIME; this.startVote();
       this.broadcast({t:'round',title:'Бой окончен',sub:'Победил '+leader.name+' — '+leader.kills+' убийств',end:1}); }
   }
   tickBomb(dt){
@@ -372,11 +417,11 @@ class Room{
       case 'post':
         this.timer-=dt;
         if(this.timer<=0){
-          if(this.matchOver){ this.phase='matchend'; this.timer=C.MATCH_END_TIME; const w=this.score.CT>this.score.T?'CT':'T';
+          if(this.matchOver){ this.phase='matchend'; this.timer=C.VOTE_TIME; this.startVote(); const w=this.score.CT>this.score.T?'CT':'T';
             for(const p of this.players.values()) this.send(p,{t:'round',title:p.team===w?'Победа в матче!':'Матч проигран',sub:'Спецназ '+this.score.CT+' : '+this.score.T+' Террористы',end:1}); }
           else this.startRound(); }
         return;
-      case 'matchend': this.timer-=dt; if(this.timer<=0) this.startMatch(); return;
+      case 'matchend': this.timer-=dt; if(this.timer<=0){ this.finishVote(); this.startMatch(); } return;
       case 'live': if(this.mode==='hostage') this.tickHostage(dt); else this.tickLive(dt); return;
     }
   }
@@ -403,7 +448,7 @@ class Room{
     const b=this.bomb;
     this.broadcast({t:'snap',ps,b:{s:b.s,x:r2(b.x),z:r2(b.z),tm:r2(b.timer),site:b.site,c:b.carrier},
       r:{ph:this.phase,tm:r2(this.timer),n:this.round,ct:this.score.CT,tt:this.score.T,mode:this.mode,buy:r2(Math.max(0,(this.buyUntil-Date.now())/1000))},
-      d:{s:this.drop.s,x:r2(this.drop.x),z:r2(this.drop.z),h:r2(this.drop.h)},hg:(this.hostages||[]).map(h=>[h.id,r2(h.x),r2(h.z),h.state,r3(h.yaw),h.by]),hs:this.holos.map(h=>[h.id,r2(h.x),r2(h.z),r3(h.yaw),h.team,h.owner]),ds:this.drones.map(d=>[d.id,r2(d.x),r2(d.y),r2(d.z),d.team,d.owner,d.spotted])});
+      d:{s:this.drop.s,x:r2(this.drop.x),z:r2(this.drop.z),h:r2(this.drop.h)},hg:(this.hostages||[]).map(h=>[h.id,r2(h.x),r2(h.z),h.state,r3(h.yaw),h.by]),hs:this.holos.map(h=>[h.id,r2(h.x),r2(h.z),r3(h.yaw),h.team,h.owner]),ds:this.drones.map(d=>[d.id,r2(d.x),r2(d.y),r2(d.z),d.team,d.owner,d.spotted]),tp:this.traps.map(t=>[t.id,r2(t.x),r2(t.z),t.team,t.owner,t.arm>0?0:1])});
   }
 }
 

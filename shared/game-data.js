@@ -1,7 +1,7 @@
 // Общие данные и правила «Пыльного рубежа онлайн»: этот файл используют и сервер, и браузер.
 (function(G){
 'use strict';
-const C={HOSTAGE_TIME:150,RESCUE_HOLD:1.2,RESCUE_MONEY:1000,DRONE_TIME:8,DRONE_RANGE:16,DRONE_DIST:12,DRONE_ALT:2.6,DROP_OPEN:1.5,DROP_DELAY:25,DROP_FFA:75,HOLO_TIME:8,DASH_CD:5,PLANT_TIME:3.2,DEFUSE_TIME:5,BOMB_TIME:40,ROUND_TIME:115,FREEZE_TIME:4,BUY_TIME:20,POST_TIME:5,MATCH_END_TIME:9,MATCH_WIN:7,EYE:1.7,
+const C={CRATE_HP:150,TRAP_R:1.7,TRAP_ARM:1.5,VOTE_TIME:12,HOSTAGE_TIME:150,RESCUE_HOLD:1.2,RESCUE_MONEY:1000,DRONE_TIME:8,DRONE_RANGE:16,DRONE_DIST:12,DRONE_ALT:2.6,DROP_OPEN:1.5,DROP_DELAY:25,DROP_FFA:75,HOLO_TIME:8,DASH_CD:5,PLANT_TIME:3.2,DEFUSE_TIME:5,BOMB_TIME:40,ROUND_TIME:115,FREEZE_TIME:4,BUY_TIME:20,POST_TIME:5,MATCH_END_TIME:9,MATCH_WIN:7,EYE:1.7,
   FFA_KILLS:30,FFA_TIME:600,RESPAWN:3,MAX_BOMB:10,MAX_FFA:12,MAX_TEAM:5,NADE_R:7.5,BOMB_R:22,NR:0.11,
   START_MONEY:800,MAX_MONEY:16000,WIN_MONEY:3250,LOSS_MONEY:1400,LOSS_STEP:500,PLANT_MONEY:300};
 
@@ -23,7 +23,7 @@ const WEAPONS=[
   {name:'Винтовка с оптикой',slot:'p',dmg:30,head:4,rate:0.095,pierce:2,mul:0.7,reward:300,price:3300},
   {name:'Гранатомёт',slot:'p',rocket:true,rate:1.0,reward:200,price:6000},
   {name:'Золотой АК',slot:'p',special:true,dmg:45,head:4,rate:0.1,pierce:3,mul:0.8,reward:300,price:0}];
-const GEAR={armor:650,kit:400,he:300,smoke:300,flash:200,holo:250,drone:300};
+const GEAR={armor:650,kit:400,he:300,smoke:300,flash:200,holo:250,drone:300,trap:350};
 const NADE_MAX={he:1,smoke:1,flash:2,holo:1};
 const NADE_FUSE={he:1.8,smoke:1.6,flash:1.4,holo:1.0};
 
@@ -141,7 +141,7 @@ for(const k in MAPS){ const m=MAPS[k]; m.ffa=m.spawns.concat(m.spawns.map(([x,z]
 
 // Собирает карту: hooks (необязательно) получают всё, что нужно нарисовать в браузере
 function buildMap(id,hooks){ const h=hooks||{}, boxes=[];
-  const box=(x,z,w,d,hh,kind,y0)=>{ y0=y0||0; boxes.push([x,z,w,d,hh,kind,y0]); if(h.box) h.box(x,z,w,d,hh,kind,y0); };
+  const box=(x,z,w,d,hh,kind,y0)=>{ y0=y0||0; boxes.push([x,z,w,d,hh,kind,y0]); if(h.box) h.box(x,z,w,d,hh,kind,y0,boxes.length-1); };
   const a={box,
     crate:(x,z,stack)=>{ box(x,z,2,2,2,'crate'); if(stack) box(x,z,2,2,2,'crate',2); },
     pine:(x,z,s)=>{ box(x,z,0.5,0.5,2,'log'); if(h.pine) h.pine(x,z,s); },
@@ -190,5 +190,11 @@ function nadeStep(n,dt,solids){ const p=n.p, v=n.v, R=C.NR; let bounced=false;
   clampMap(p); return bounced; }
 function siteAt(map,x,z,r){ const S=MAPS[map].sites; if(!S) return null; for(const k in S) if(Math.hypot(S[k].x-x,S[k].z-z)<(r||5)) return k; return null; }
 
-Object.assign(G,{C,WEAPONS,GEAR,NADE_MAX,NADE_FUSE,MAPS,buildMap,clamp,collide,clampMap,segBlocked,pointHit,nadeStep,siteAt});
+const RADIO=['Вперёд!','Нужна помощь!','Враг здесь!','Держим позицию','Иду на A','Иду на B','Отлично!','Спасибо!'];
+// простой фильтр грубых слов для чата
+const BAD=['хуй','хуе','хуё','хуя','пизд','ебат','ебал','ебан','ебу','ёба','еба','бля','сука','суки','мудак','мудил','гандон','пидор','пидар','шлюх','залуп','дебил','чмо'];
+function cleanChat(t){ t=String(t||'').replace(/[\u0000-\u001f<>]/g,'').replace(/\s+/g,' ').trim().slice(0,120);
+  for(const w of BAD){ const re=new RegExp('[а-яёa-z]*'+w+'[а-яёa-z]*','gi'); t=t.replace(re,m=>'*'.repeat(Math.min(m.length,6))); } return t; }
+const WEATHERS=['day','day','evening','night','fog','rain'];
+Object.assign(G,{WEATHERS,buildSolids,buildBoxes,RADIO,cleanChat,C,WEAPONS,GEAR,NADE_MAX,NADE_FUSE,MAPS,buildMap,clamp,collide,clampMap,segBlocked,pointHit,nadeStep,siteAt});
 })(typeof module!=='undefined'&&module.exports?module.exports:(window.GD={}));
