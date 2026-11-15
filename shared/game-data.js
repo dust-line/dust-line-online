@@ -196,5 +196,14 @@ const BAD=['хуй','хуе','хуё','хуя','пизд','ебат','ебал',
 function cleanChat(t){ t=String(t||'').replace(/[\u0000-\u001f<>]/g,'').replace(/\s+/g,' ').trim().slice(0,120);
   for(const w of BAD){ const re=new RegExp('[а-яёa-z]*'+w+'[а-яёa-z]*','gi'); t=t.replace(re,m=>'*'.repeat(Math.min(m.length,6))); } return t; }
 const WEATHERS=['day','day','evening','night','fog','rain'];
-Object.assign(G,{WEATHERS,buildSolids,buildBoxes,RADIO,cleanChat,C,WEAPONS,GEAR,NADE_MAX,NADE_FUSE,MAPS,buildMap,clamp,collide,clampMap,segBlocked,pointHit,nadeStep,siteAt});
+// онлайн-профиль: уровни, звания, скины
+const SKIN_IDS=['standard','fade','camo','stripe','tiger','arctic','night','candy','ocean','pixel','neon','lava','emerald','galaxy','gold'];
+const START_SKINS=['standard','fade','camo','stripe','arctic'];
+const KNIFE_LEVELS={bayonet:1,karambit:5,butterfly:10,bowie:15};
+const LEVEL_MAX=50, GOLD_LEVEL=30;
+const RANKS=[[1,'Новобранец'],[5,'Рядовой'],[10,'Ефрейтор'],[15,'Сержант'],[22,'Лейтенант'],[30,'Капитан'],[40,'Майор'],[50,'Легенда']];
+const xpNeed=l=>300+l*200;
+const rankOf=l=>{ let r=RANKS[0][1]; for(const [lv,n] of RANKS) if(l>=lv) r=n; return r; };
+const XP={kill:100,head:50,round:150,match:500,play:200,rescue:150,bomb:100};
+Object.assign(G,{SKIN_IDS,START_SKINS,KNIFE_LEVELS,LEVEL_MAX,GOLD_LEVEL,RANKS,xpNeed,rankOf,XP,WEATHERS,buildSolids,buildBoxes,RADIO,cleanChat,C,WEAPONS,GEAR,NADE_MAX,NADE_FUSE,MAPS,buildMap,clamp,collide,clampMap,segBlocked,pointHit,nadeStep,siteAt});
 })(typeof module!=='undefined'&&module.exports?module.exports:(window.GD={}));

@@ -274,6 +274,19 @@ body.touch #chatBox{bottom:auto;top:calc(110px + env(safe-area-inset-top,0px));l
 #bTrap.cd{opacity:.4}
 #vote{position:absolute;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:rgba(20,18,14,.95);border:1px solid rgba(233,211,166,.3);border-radius:12px;padding:12px 14px;display:none;pointer-events:auto;text-align:center;z-index:5}
 #vote.show{display:block}
+#profLine{margin:0 0 12px;padding:10px 12px;border-radius:8px;background:rgba(233,211,166,.07);border:1px solid rgba(233,211,166,.16);font-size:14px;line-height:1.5}
+#profLine b{color:var(--signal);font-family:"Russo One",system-ui,sans-serif;font-weight:400}
+#profLine .bar{height:6px;border-radius:3px;background:rgba(233,211,166,.15);margin-top:6px;overflow:hidden} #profLine .bar i{display:block;height:100%;background:var(--signal)}
+#xpPop{position:absolute;right:calc(18px + env(safe-area-inset-right,0px));top:42%;font:16px "Russo One",system-ui,sans-serif;color:#ffd84a;text-shadow:0 2px 6px rgba(0,0,0,.8);opacity:0;transition:opacity .3s;pointer-events:none;text-align:right}
+#xpPop.show{opacity:1}
+#lvlUp{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(20,18,14,.96);border:2px solid var(--signal);border-radius:14px;padding:18px 20px;display:none;pointer-events:auto;text-align:center;z-index:6;max-width:92vw}
+#lvlUp.show{display:block}
+#lvlUp h4{margin:0 0 4px;font:22px "Russo One",system-ui,sans-serif;color:var(--signal)} #lvlUp p{margin:0 0 12px;color:#d9c7a3}
+#lvlOpts{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+#lvlOpts button{width:120px;border:2px solid rgba(233,211,166,.3);border-radius:10px;background:rgba(233,211,166,.06);color:var(--text);padding:8px;cursor:pointer;font:14px "Rubik",system-ui,sans-serif}
+#lvlOpts button:hover,#lvlOpts button:focus-visible{border-color:var(--signal);outline:none}
+#lvlOpts i{display:block;height:54px;border-radius:6px;margin-bottom:6px;background-size:cover}
+#lvlLater{margin-top:12px;border:0;background:transparent;color:var(--khaki);font:13px "Rubik",system-ui,sans-serif;cursor:pointer;text-decoration:underline}
 #vote h4{margin:0 0 8px;font:17px "Russo One",system-ui,sans-serif;color:var(--sand)}
 #voteOpts{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
 #voteOpts button{min-width:140px;border:2px solid rgba(233,211,166,.35);background:rgba(233,211,166,.06);color:var(--text);border-radius:8px;padding:10px 12px;font:15px "Rubik",system-ui,sans-serif;cursor:pointer}
@@ -359,6 +372,8 @@ body.touch #chatBox{bottom:auto;top:calc(110px + env(safe-area-inset-top,0px));l
   <div id="board"></div>
   <div id="rain"></div>
   <div id="killcam" role="status"></div>
+  <div id="xpPop" role="status"></div>
+  <div id="lvlUp" role="dialog" aria-label="Новый уровень"><h4 id="lvlTitle"></h4><p id="lvlText"></p><div id="lvlOpts"></div><button id="lvlLater">Выбрать позже</button></div>
   <div id="vote" role="dialog" aria-label="Голосование за карту"><h4>Следующая карта — голосуй! <span id="voteTime"></span></h4><div id="voteOpts"></div></div>
   <div id="chat" aria-live="polite"></div>
   <div id="chatBox"><span id="chatTo">Команде:</span><input id="chatInput" maxlength="120" autocomplete="off" aria-label="Сообщение в чат"><button id="chatSend">➤</button></div>
@@ -381,6 +396,7 @@ body.touch #chatBox{bottom:auto;top:calc(110px + env(safe-area-inset-top,0px));l
     </nav>
     <section class="tabpane" data-pane="play" role="tabpanel">
       <div id="roomsBox"><div class="label">Открытые комнаты</div><div class="rooms" id="roomList"><div class="empty">Загружаю…</div></div></div>
+      <div id="profLine" aria-live="polite">Онлайн-профиль: войди в игру, и твой прогресс начнёт сохраняться</div>
       <div id="joinBox">
         <label class="label" for="nick">Твой ник</label>
         <input class="inp" id="nick" maxlength="16" autocomplete="off" placeholder="Например, Сокол">
@@ -428,7 +444,7 @@ body.touch #chatBox{bottom:auto;top:calc(110px + env(safe-area-inset-top,0px));l
       <div class="knifename" id="skinName"></div>
       <div class="label">Скины</div>
       <div class="row" id="skinRow"></div>
-      <p class="modedesc">Скины видишь только ты — у других игроков твоё оружие выглядит обычно.</p>
+      <p class="modedesc">Новые скины и ножи открываются за уровни онлайн-профиля. Скины на твоём оружии видят все игроки.</p>
     </section>
     <section class="tabpane" data-pane="settings" role="tabpanel" hidden>
       <div class="label">Чувствительность прицела: <span id="sensVal">1.0</span></div>
@@ -896,12 +912,17 @@ const buyLeft=()=>Math.max(0,srv.r.buy-(performance.now()-srv.rAt)/1000);
 const ui={canPlant:false,canDefuse:false,canOpen:false,canRescue:false};
 const ray=new THREE.Raycaster(); const tmpV=new THREE.Vector3(), vD=new THREE.Vector3();
 function look(dx,dy,k){ k*=camera.fov/BASE_FOV; P.yaw-=dx*k*settings.sens; P.pitch=clamp(P.pitch-dy*k*settings.sens,-1.5,1.5); swayX+=dx*0.0004; swayY+=dy*0.0004; }
-const isUnlocked=()=>true, lockText=()=>'', renderProfile=()=>{};
+const myToken=(()=>{ let t=store.get('token',''); if(!/^[A-Za-z0-9]{16,64}$/.test(t)){ const a='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'; t=''; const rnd=new Uint8Array(32); try{ crypto.getRandomValues(rnd); }catch(e){ for(let i=0;i<32;i++) rnd[i]=Math.random()*256; } for(const b of rnd) t+=a[b%a.length]; store.set('token',t); } return t; })();
+const oprof=()=>net.prof||store.get('oprof',null)||{level:1,skins:GD.START_SKINS,knives:['bayonet']};
+const isUnlocked=(kind,k)=>{ const pr=oprof(); if(kind==='skin') return k==='standard'||(pr.skins||[]).includes(k); if(kind==='type') return (pr.knives||['bayonet']).includes(k); return true; };
+const lockText=(kind,k)=>kind==='type'?'откроется на '+GD.KNIFE_LEVELS[k]+' уровне':'выбирай новые скины за уровни онлайн-профиля';
+const renderProfile=()=>{};
 function bodyClass(c,on){ if(document.body.classList.contains(c)!==on) document.body.classList.toggle(c,on); }
 
 /* ---------- input ---------- */
 const typing=e=>e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA');
 addEventListener('keydown',e=>{ if(typing(e)) return;
+  if(state.mode==='play'&&lvlOpen&&lvlOpts&&/^Digit[1-3]$/.test(e.code)){ pickSkin(lvlOpts[+e.code.slice(5)-1]); return; }
   if(state.mode==='play'&&voteOpts&&/^Digit[1-3]$/.test(e.code)){ castVote(voteOpts[+e.code.slice(5)-1]); return; }
   if(state.mode==='play'&&radioOpen&&/^Digit[1-8]$/.test(e.code)){ sendRadio(+e.code.slice(5)-1); e.preventDefault(); return; }
   if(state.mode==='play'&&!shopOpen){ if(e.code==='Enter'||e.code==='KeyU'){ e.preventDefault(); openChat(!isFFA()); return; } if(e.code==='KeyY'){ e.preventDefault(); openChat(false); return; }
@@ -926,7 +947,7 @@ addEventListener('wheel',e=>{ if(state.mode==='play'&&P.alive&&switching<0.2&&!s
 function lock(){ if(isTouch||fallback) return; try{ const r=canvas.requestPointerLock(); if(r&&r.catch) r.catch(()=>onLockError()); }catch(e){ onLockError(); } }
 function onLockError(){ if(everLocked){ if(state.mode==='play'&&!shopOpen) openPause(); return; }
   if(!fallback){ fallback=true; toast('Курсор не захватывается — веди прицел мышью, Esc — меню'); } }
-document.addEventListener('pointerlockchange',()=>{ locked=document.pointerLockElement===canvas; if(locked) everLocked=true; if(!locked&&state.mode==='play'&&!fallback&&!shopOpen&&!chatOpen&&!voteOpts) openPause(); });
+document.addEventListener('pointerlockchange',()=>{ locked=document.pointerLockElement===canvas; if(locked) everLocked=true; if(!locked&&state.mode==='play'&&!fallback&&!shopOpen&&!chatOpen&&!voteOpts&&!lvlOpen) openPause(); });
 document.addEventListener('pointerlockerror',onLockError);
 canvas.addEventListener('mousedown',e=>{ if(state.mode!=='play'||shopOpen) return; audio();
   if(!locked&&!fallback){ lock(); return; }
@@ -999,6 +1020,7 @@ function buildAvatar(r){
 function removeRemote(r){ if(r.av) scene.remove(r.av.group); remotes.delete(r.id); }
 function updateRemotes(dt){ const rt=performance.now()-INTERP, now=performance.now();
   for(const r of remotes.values()){ if(!r.av) continue; const g=r.av.group;
+    if(r.av.skinShown!==r.skin){ if(!r.av.gunMat0) r.av.gunMat0=r.av.gun.material; r.av.gun.material=skinMat(GD.SKIN_IDS[r.skin])||r.av.gunMat0; r.av.skinShown=r.skin; }
     if(!r.alive){ r.deadT+=dt; g.rotation.x=Math.max(-Math.PI/2,-r.deadT*5); g.visible=r.deadT<3; if(r.av.tags) r.av.tags.forEach(t=>t.visible=false); continue; }
     g.visible=true; g.rotation.x=0; if(r.av.tags) r.av.tags.forEach(t=>t.visible=true);
     const b=r.buf; if(!b.length) continue;
@@ -1024,7 +1046,7 @@ function connect(){
   $('err').textContent=''; $('joinBtn').disabled=true; $('joinBtn').textContent='Подключение…';
   let ws; try{ ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws'); } catch(e){ joinFail('Не удалось подключиться к серверу'); return; }
   net.ws=ws; net.joined=false;
-  ws.onopen=()=>send({t:'join',name,room,mode:settings.mode,map:settings.map,team:settings.team});
+  ws.onopen=()=>send({t:'join',name,room,mode:settings.mode,map:settings.map,team:settings.team,token:myToken});
   ws.onmessage=e=>{ let m; try{ m=JSON.parse(e.data); }catch(err){ return; } onMsg(m); };
   ws.onclose=()=>{ if(net.ws!==ws) return; net.ws=null; if(net.joined) leaveToMenu('Соединение с сервером потеряно'); else joinFail('Сервер недоступен. Проверь, что он запущен.'); };
   ws.onerror=()=>{}; }
@@ -1089,6 +1111,10 @@ function onMsg(m){
       else if(m.ev==='gone'){ spark(new THREE.Vector3(m.x,0.3,m.z),0xff8a5a,6); if(m.by) feedLine([[m.by+'  ',''],['обезвредил ловушку','hs']],m.by===settings.name); }
       return;
     case 'vote': openVote(m.options,m.secs); return;
+    case 'profile': net.prof=m; store.set('oprof',m); renderProfLine(); syncKnifeLocks(); sendEquip(); if(m.pending&&m.pending.length&&!lvlOpen) openLvl(m.level,m.rank,m.pending,null); return;
+    case 'xp': if(net.prof) Object.assign(net.prof,{xp:m.xp,level:m.level,need:m.need,rank:m.rank}); renderProfLine(); xpPopup('+'+m.add+' XP · '+m.why); return;
+    case 'levelup': if(net.prof){ net.prof.pending=m.options; if(m.knife&&!net.prof.knives.includes(m.knife)) net.prof.knives.push(m.knife); store.set('oprof',net.prof); }
+      [0,120,240,360].forEach((d,i)=>setTimeout(()=>beep([660,880,1100,1320][i],0.16,0.09,'triangle'),d)); openLvl(m.level,m.rank,m.options,m.knife); syncSkins(); return;
     case 'votes': voteTally=m.tally; renderVote(); return;
     case 'map': net.map=m.map; net.weather=m.weather||'day'; closeVote(); currentMap=null; loadMap(m.map); sysFeed('Следующая карта: «'+MAPS[m.map].name+'»'+(WEATHER_NAME[net.weather]?' · '+WEATHER_NAME[net.weather]:'')); return;
     case 'hostage': if(m.ev==='rescued'){ feedLine([[m.name+'  ','ct'],['вывел заложника'+(m.left?' · осталось '+m.left:''),'hs']],m.name===settings.name); [0,120].forEach((d,i)=>setTimeout(()=>beep([700,1050][i],0.15,0.09,'triangle'),d)); } return;
@@ -1101,12 +1127,12 @@ function onMsg(m){
   } }
 function onSnap(m){ const now=performance.now(), seen=new Set();
   srv.r=m.r; srv.rAt=now; srv.b=m.b; srv.bAt=now; srv.d=m.d; syncHolos(m.hs||[]); syncDrones(m.ds||[]); syncHostages(m.hg||[]); syncTraps(m.tp||[]);
-  for(const a of m.ps){ const [id,x,y,z,yaw,pitch,hp,alive,team,w,useP,name,kills,deaths,dropP]=a; seen.add(id);
+  for(const a of m.ps){ const [id,x,y,z,yaw,pitch,hp,alive,team,w,useP,name,kills,deaths,dropP,level,skin]=a; seen.add(id);
     if(id===net.id){ const wasAlive=P.alive; P.hp=hp; if(team!==net.team) net.team=team;
-      net.useP=useP; net.dropP=dropP||0; net.kills=kills; net.deaths=deaths; if(wasAlive&&!alive) localDown(); continue; }
+      net.level=level||0; net.useP=useP; net.dropP=dropP||0; net.kills=kills; net.deaths=deaths; if(wasAlive&&!alive) localDown(); continue; }
     let r=remotes.get(id);
     if(!r){ r={id,name,team,buf:[],alive:!!alive,hp,x,y,z,yaw,w,kills,deaths,useP,walk:0,deadT:0,flash:0,seenT:-1e9,spotCheck:Math.random()*0.2,av:null}; remotes.set(id,r); }
-    r.name=name; r.team=team; r.hp=hp; r.w=w; r.kills=kills; r.deaths=deaths; r.useP=useP;
+    r.name=name; r.team=team; r.hp=hp; r.w=w; r.kills=kills; r.deaths=deaths; r.useP=useP; r.level=level||0; r.skin=skin||0;
     if(!r.alive&&alive){ r.buf.length=0; r.deadT=0; r.x=x; r.y=y; r.z=z; }
     r.alive=!!alive;
     const lb=r.buf[r.buf.length-1]; if(lb&&Math.hypot(lb.x-x,lb.z-z)>6) r.buf.length=0;
@@ -1355,10 +1381,11 @@ function updateHUD(dt){
   const showBoard=boardOn||r.ph==='matchend'; elBoard.classList.toggle('show',showBoard);
   boardT-=dt; if(showBoard&&boardT<=0){ boardT=0.5; renderBoard(); } }
 function renderBoard(){
-  const all=[...remotes.values()].map(x=>({id:x.id,name:x.name,team:x.team,k:x.kills,d:x.deaths,alive:x.alive}));
-  all.push({id:net.id,name:settings.name||'Ты',team:net.team,k:net.kills,d:net.deaths,alive:P.alive}); all.sort((a,b)=>b.k-a.k||a.d-b.d);
-  const table=list=>{ const t=document.createElement('table'); const hr=t.insertRow(); ['Игрок','Убийства','Смерти'].forEach((h,i)=>{ const th=document.createElement('th'); th.textContent=h; if(i) th.className='n'; hr.append(th); });
+  const all=[...remotes.values()].map(x=>({id:x.id,name:x.name,team:x.team,k:x.kills,d:x.deaths,alive:x.alive,lv:x.level||0}));
+  all.push({id:net.id,name:settings.name||'Ты',team:net.team,k:net.kills,d:net.deaths,alive:P.alive,lv:net.level||0}); all.sort((a,b)=>b.k-a.k||a.d-b.d);
+  const table=list=>{ const t=document.createElement('table'); const hr=t.insertRow(); ['Ур.','Игрок','Убийства','Смерти'].forEach((h,i)=>{ const th=document.createElement('th'); th.textContent=h; if(i!==1) th.className='n'; hr.append(th); });
     for(const p of list){ const tr=t.insertRow(); if(p.id===net.id) tr.className='me'; if(!p.alive&&!isFFA()) tr.className+=' dead';
+      const lv=tr.insertCell(); lv.textContent=p.lv?p.lv:'—'; lv.className='n'; lv.title=p.lv?GD.rankOf(p.lv):'гость';
       const a=tr.insertCell(); a.textContent=p.name; const b=tr.insertCell(); b.textContent=p.k; b.className='n'; const c=tr.insertCell(); c.textContent=p.d; c.className='n'; } return t; };
   elBoard.innerHTML=''; const h=document.createElement('h3'); h.textContent='«'+net.room+'» · '+MAPS[net.map].name+(isFFA()?' · бой насмерть':' · '+MODE_NAME[net.mode]+' · спецназ '+srv.r.ct+' : '+srv.r.tt+' террористы'); elBoard.append(h);
   const cols=document.createElement('div'); cols.className=isFFA()?'cols one':'cols';
@@ -1713,10 +1740,38 @@ async function refreshRooms(){ if(state.mode!=='menu') return; let list;
     btn.addEventListener('click',()=>{ $('roomCode').value=r.code; audio(); connect(); }); d.append(name,info,btn); box.append(d); } }
 setInterval(refreshRooms,3000); setTimeout(refreshRooms,300);
 
+/* ---------- online profile: level line, XP pop-ups, level-up reward ---------- */
+let lvlOpen=false, lvlOpts=null, xpT=0;
+function sendEquip(){ if(net.joined) send({t:'equip',skins:settings.wskins,knife:settings.knife}); }
+function renderProfLine(pr){ pr=pr||net.prof; const el=$('profLine'); if(!el) return; el.innerHTML='';
+  if(!pr){ el.textContent='Онлайн-профиль: войди в игру, и твой прогресс начнёт сохраняться'; return; }
+  const top=document.createElement('div'); const b=document.createElement('b'); b.textContent='Ур. '+pr.level+' · '+pr.rank;
+  top.append(b,document.createTextNode('  '+(pr.need?pr.xp+' / '+pr.need+' XP':'максимальный уровень')+' · убийств '+(pr.kills||0)+' · побед '+(pr.wins||0)));
+  const bar=document.createElement('div'); bar.className='bar'; const i=document.createElement('i'); i.style.width=(pr.need?Math.min(100,pr.xp/pr.need*100):100)+'%'; bar.append(i); el.append(top,bar); }
+function xpPopup(text){ const el=$('xpPop'); el.textContent=text; el.classList.add('show'); clearTimeout(xpT); xpT=setTimeout(()=>el.classList.remove('show'),1600); }
+const KNIFE_NAMES={karambit:'Керамбит',butterfly:'Бабочка',bowie:'Тесак',bayonet:'Штык-нож'};
+function openLvl(level,rank,opts,knife){ lvlOpts=opts&&opts.length?opts:null; $('lvlTitle').textContent='Новый уровень '+level+'!';
+  $('lvlText').textContent=rank+(knife?' · открыт нож «'+KNIFE_NAMES[knife]+'»':'')+(lvlOpts?' · выбери новый скин':'');
+  const box=$('lvlOpts'); box.innerHTML='';
+  if(lvlOpts) lvlOpts.forEach((k,i)=>{ const b=document.createElement('button'); const sw=document.createElement('i'); try{ sw.style.backgroundImage='url('+skinCanvas(k).toDataURL()+')'; }catch(e){}
+    b.append(sw,document.createTextNode((isTouch?'':(i+1)+'. ')+SKINS[k])); b.addEventListener('click',()=>pickSkin(k)); box.append(b); });
+  $('lvlLater').textContent=lvlOpts?'Выбрать позже':'Отлично!';
+  lvlOpen=true; $('lvlUp').classList.add('show'); clearTouch(); if(document.pointerLockElement) document.exitPointerLock(); }
+function closeLvl(){ if(!lvlOpen) return; lvlOpen=false; $('lvlUp').classList.remove('show'); if(!isTouch&&state.mode==='play') lock(); }
+function pickSkin(k){ if(!k) return; send({t:'pick',skin:k}); toast('Скин «'+SKINS[k]+'» теперь твой — надень его во вкладке «Скины»'); lvlOpts=null; closeLvl(); }
+$('lvlLater').addEventListener('click',closeLvl);
+async function fetchProfLine(){ if(net.joined) return; const name=($('nick').value.trim()||settings.name||'').trim(); if(!name){ renderProfLine(null); return; }
+  try{ const r=await fetch('/profile?name='+encodeURIComponent(name)+'&token='+myToken,{cache:'no-store'}); const pr=await r.json();
+    if(!pr.exists){ $('profLine').textContent='Ник «'+name+'» свободен — войди в игру, и он станет твоим'; return; }
+    if(!pr.mine){ $('profLine').textContent='Ник «'+name+'» уже занят другим игроком — выбери другой'; return; }
+    store.set('oprof',pr); renderProfLine(pr); syncSkins(); }catch(e){ const c=store.get('oprof',null); if(c) renderProfLine(c); } }
+let profFetchT=0; $('nick').addEventListener('input',()=>{ clearTimeout(profFetchT); profFetchT=setTimeout(fetchProfLine,500); });
+setTimeout(fetchProfLine,400);
+
 function leaveToMenu(msg){ const ws=net.ws; net.ws=null; net.joined=false; if(ws) try{ ws.close(); }catch(e){}
   state.mode='menu'; P.alive=false; clearTouch(); for(const r of [...remotes.values()]) removeRemote(r);
   for(const n of nadeList) scene.remove(n.m); nadeList.length=0; for(const r of rocketList) scene.remove(r.m); rocketList.length=0; clearSmokes(); blindT=0;
-  bombMesh.visible=false; srv.b={s:'none',x:0,z:0,tm:0,site:null,c:null}; srv.d=null; syncHolos([]); syncDrones([]); syncHostages([]); syncTraps([]); closeVote(); kc=null; $('killcam').classList.remove('show'); dashCd=0; closeChat(); toggleRadio(false); for(const p of pings) scene.remove(p.sp); pings.length=0; chatEl.innerHTML=''; shopOpen=false; $('shop').classList.add('hidden');
+  bombMesh.visible=false; srv.b={s:'none',x:0,z:0,tm:0,site:null,c:null}; srv.d=null; syncHolos([]); syncDrones([]); syncHostages([]); syncTraps([]); closeVote(); closeLvl(); net.prof=null; setTimeout(fetchProfLine,300); kc=null; $('killcam').classList.remove('show'); dashCd=0; closeChat(); toggleRadio(false); for(const p of pings) scene.remove(p.sp); pings.length=0; chatEl.innerHTML=''; shopOpen=false; $('shop').classList.add('hidden');
   ['scoped','sniper','zoomable','knife','can-use','can-buy','dead-spec'].forEach(c=>bodyClass(c,false)); camera.fov=BASE_FOV; camera.updateProjectionMatrix();
   if(document.pointerLockElement) document.exitPointerLock();
   hud.classList.add('hidden'); $('joinBox').classList.remove('hidden'); $('joinActs').classList.remove('hidden'); $('roomsBox').classList.remove('hidden'); $('pauseNote').classList.add('hidden'); $('pauseBox').classList.add('hidden');
@@ -1765,7 +1820,7 @@ function drawPreview(){ const k=curSkin(skinSlot);
   $('skinName').textContent=skinSlot===3?KNIVES[settings.knife.type].name+' «'+SKINS[k]+'»':SLOT_NAMES[skinSlot]+(k==='standard'?' — без скина':' «'+SKINS[k]+'»');
   const c=$('skinPrev'); if(!c||typeof Path2D==='undefined') return; const g=c.getContext('2d'); g.clearRect(0,0,c.width,c.height);
   if(skinSlot===3) drawKnifeShape(g,k); else drawGunShape(g,skinSlot,k); }
-function syncSkins(){
+function syncSkins(){ if(net.joined) sendEquip();
   document.querySelectorAll('[data-slot]').forEach(b=>b.setAttribute('aria-pressed',String(+b.dataset.slot===skinSlot)));
   $('knifeRow').classList.toggle('hidden',skinSlot!==3);
   document.querySelectorAll('[data-ktype]').forEach(b=>{ const u=isUnlocked('type',b.dataset.ktype); b.classList.toggle('locked',!u); b.textContent=(u?'':'🔒 ')+KNIVES[b.dataset.ktype].name; b.setAttribute('aria-pressed',String(b.dataset.ktype===settings.knife.type)); });

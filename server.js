@@ -9,11 +9,48 @@ const PORT=Number(process.env.PORT)||3000;
 const PUBLIC=path.join(__dirname,'public');
 const MIME={'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.ico':'image/x-icon','.svg':'image/svg+xml'};
 
+/* ---------- онлайн-профили ---------- */
+// Профили хранятся в data/profiles.json (папку можно поменять переменной DATA_DIR).
+// Ник защищён секретным ключом, который хранит браузер игрока.
+const DATA_DIR=process.env.DATA_DIR||path.join(__dirname,'data'), PROF_FILE=path.join(DATA_DIR,'profiles.json');
+// Если заданы UPSTASH_REDIS_REST_URL и UPSTASH_REDIS_REST_TOKEN, профили хранятся в базе Upstash и не пропадают
+// при обновлениях; иначе — в файле data/profiles.json (на бесплатном Render он стирается при перезапуске).
+const UP_URL=(process.env.UPSTASH_REDIS_REST_URL||'').replace(/\/+$/,''), UP_TOKEN=process.env.UPSTASH_REDIS_REST_TOKEN||'', UP_KEY='dustline:profiles';
+const useUpstash=!!(UP_URL&&UP_TOKEN);
+async function upstash(cmd){ const r=await fetch(UP_URL,{method:'POST',headers:{Authorization:'Bearer '+UP_TOKEN,'Content-Type':'application/json'},body:JSON.stringify(cmd)});
+  const j=await r.json(); if(!r.ok||j.error) throw new Error(j.error||('HTTP '+r.status)); return j.result; }
+let profiles={}, profDirty=false, saving=false;
+async function loadProfiles(){
+  if(useUpstash){ for(let i=0;i<5;i++){ try{ const v=await upstash(['GET',UP_KEY]); profiles=v?JSON.parse(v):{}; console.log('Профили загружены из Upstash: '+Object.keys(profiles).length); return; }
+      catch(e){ console.error('Upstash недоступен ('+e.message+'), пробую ещё раз…'); await new Promise(r=>setTimeout(r,2000*(i+1))); } }
+    throw new Error('Не удалось загрузить профили из Upstash — проверь ключи в Environment'); }
+  try{ profiles=JSON.parse(fs.readFileSync(PROF_FILE,'utf8'))||{}; }catch(e){ profiles={}; } }
+async function saveProfiles(){ if(!profDirty||saving) return; profDirty=false; saving=true; const data=JSON.stringify(profiles);
+  try{ if(useUpstash) await upstash(['SET',UP_KEY,data]);
+    else { fs.mkdirSync(DATA_DIR,{recursive:true}); fs.writeFileSync(PROF_FILE+'.tmp',data); fs.renameSync(PROF_FILE+'.tmp',PROF_FILE); } }
+  catch(e){ profDirty=true; console.error('Не удалось сохранить профили:',e.message); }
+  saving=false; }
+setInterval(saveProfiles,20000).unref();
+const shutdown=async()=>{ try{ await saveProfiles(); }finally{ process.exit(0); } };
+process.on('SIGTERM',shutdown); process.on('SIGINT',shutdown);
+const profKey=n=>String(n||'').trim().toLowerCase();
+const goodToken=t=>typeof t==='string'&&/^[A-Za-z0-9]{16,64}$/.test(t);
+function profileFor(name,token){ if(!goodToken(token)) return { guest:true };
+  const k=profKey(name); let pr=profiles[k];
+  if(pr){ if(pr.token!==token) return null; pr.name=name; return pr; }
+  pr=profiles[k]={name,token,xp:0,level:1,kills:0,deaths:0,heads:0,wins:0,matches:0,skins:[...GD.START_SKINS],knives:['bayonet'],pending:null,created:Date.now()};
+  profDirty=true; return pr; }
+function publicProfile(pr){ return {name:pr.name,xp:pr.xp,level:pr.level,need:pr.level>=GD.LEVEL_MAX?0:GD.xpNeed(pr.level),rank:GD.rankOf(pr.level),
+  kills:pr.kills,deaths:pr.deaths,heads:pr.heads,wins:pr.wins,matches:pr.matches,skins:pr.skins,knives:pr.knives,pending:pr.pending||null}; }
+
 /* ---------- раздача файлов игры ---------- */
 const server=http.createServer((req,res)=>{
   let url; try{ url=decodeURIComponent((req.url||'/').split('?')[0]); }catch(e){ res.writeHead(400); return res.end(); }
   if(url==='/rooms'){ const list=[...rooms.values()].map(r=>({code:r.code,mode:r.mode,map:r.map,players:[...r.players.values()].length,max:r.max}));
     res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-cache'}); return res.end(JSON.stringify(list)); }
+  if(url==='/profile'){ const q=new URLSearchParams((req.url||'').split('?')[1]||''), pr=profiles[profKey(q.get('name'))];
+    res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-cache'});
+    return res.end(JSON.stringify(pr?Object.assign(publicProfile(pr),{exists:true,mine:pr.token===q.get('token')}):{exists:false})); }
   if(url==='/healthz'){ res.writeHead(200,{'Content-Type':'text/plain'}); return res.end('ok'); }
   let file;
   if(url==='/shared/game-data.js') file=path.join(__dirname,'shared','game-data.js');
@@ -66,13 +103,14 @@ class Room{
   eco(){ return this.mode==='bomb'||this.mode==='hostage'; }
   canBuy(p){ return p.alive&&(this.mode==='ffa'||(this.phase==='freeze'||this.phase==='wait'||(this.phase==='live'&&Date.now()<this.buyUntil))); }
 
-  add(ws,name,pref){
+  add(ws,name,pref,prof){
     const id=nextId++;
     const team=this.mode==='ffa'?(Math.random()<.5?'CT':'T'):this.pickTeam(pref);
     const p={id,ws,name,team,x:0,y:0,z:0,yaw:0,pitch:0,w:1,sp:0,hp:100,alive:false,kills:0,deaths:0,money:C.START_MONEY,inv:freshInv(),
-      using:false,useP:0,dropP:0,lastChat:0,lastRadio:0,lastDash:0,dashUntil:0,lastShot:0,lastKnife:0,respawnT:0,lastSt:Date.now(),survived:false};
+      prof:prof||null,equip:{},knifeSkin:'standard',using:false,useP:0,dropP:0,lastChat:0,lastRadio:0,lastDash:0,dashUntil:0,lastShot:0,lastKnife:0,respawnT:0,lastSt:Date.now(),survived:false};
     this.players.set(id,p);
     this.send(p,{t:'welcome',id,room:this.code,mode:this.mode,map:this.map,team,weather:this.weather,broken:[...this.broken]});
+    if(p.prof) this.send(p,Object.assign({t:'profile'},publicProfile(p.prof)));
     this.broadcast({t:'msg',text:name+' заходит в игру'},p);
     if(this.mode==='ffa'||this.phase==='wait') this.spawn(p,this.teamIndex(p));
     else this.send(p,{t:'round',title:'Раунд уже идёт',sub:'Ты появишься в следующем раунде'});
@@ -112,7 +150,19 @@ class Room{
     if(att&&att!==v) this.send(att,{t:'hitok',head:!!head,kill:v.hp<=0});
     if(v.hp<=0) this.kill(v,att,head,how,wIdx);
   }
+  // опыт за действия в бою; новый уровень даёт выбор скина и иногда новый нож
+  xp(p,add,why){ const pr=p&&p.prof; if(!pr||add<=0) return; pr.xp+=add; profDirty=true; const ups=[];
+    while(pr.level<GD.LEVEL_MAX&&pr.xp>=GD.xpNeed(pr.level)){ pr.xp-=GD.xpNeed(pr.level); pr.level++; ups.push(pr.level); }
+    if(pr.level>=GD.LEVEL_MAX) pr.xp=0;
+    this.send(p,{t:'xp',add,why,xp:pr.xp,level:pr.level,need:pr.level>=GD.LEVEL_MAX?0:GD.xpNeed(pr.level),rank:GD.rankOf(pr.level)});
+    for(const lv of ups){ let knife=null; for(const k in GD.KNIFE_LEVELS) if(GD.KNIFE_LEVELS[k]===lv&&!pr.knives.includes(k)){ pr.knives.push(k); knife=k; }
+      const pool=GD.SKIN_IDS.filter(s=>!pr.skins.includes(s)&&(s!=='gold'||lv>=GD.GOLD_LEVEL)), opts=shuffle(pool).slice(0,3);
+      if(opts.length) pr.pending=opts;
+      this.send(p,{t:'levelup',level:lv,rank:GD.rankOf(lv),options:opts,knife});
+      this.broadcast({t:'msg',text:p.name+' получает '+lv+' уровень — '+GD.rankOf(lv)},p); } }
   kill(v,att,head,how,wIdx){
+    if(v.prof){ v.prof.deaths++; profDirty=true; }
+    if(att&&att!==v&&(this.mode==='ffa'||att.team!==v.team)){ if(att.prof){ att.prof.kills++; if(head) att.prof.heads++; } this.xp(att,GD.XP.kill+(head?GD.XP.head:0),head?'убийство в голову':'убийство'); }
     v.alive=false; v.hp=0; v.deaths++; v.useP=0; v.dropP=0; v.using=false; if(v.inv.primary===14) v.inv.primary=null;
     if(att&&att!==v){ att.kills++;
       if(this.eco()){ const rw=how==='граната'?300:how==='гранатомёт'?200:how==='нож'?1500:(WEAPONS[wIdx]?WEAPONS[wIdx].reward:300);
@@ -134,8 +184,8 @@ class Room{
   dropBomb(p){ const b=this.bomb; b.s='dropped'; b.x=p.x; b.z=p.z; b.carrier=null; this.broadcast({t:'bomb',ev:'dropped'}); }
   plant(p,site){ const b=this.bomb; b.s='planted'; b.x=p.x; b.z=p.z; b.site=site; b.timer=C.BOMB_TIME; b.carrier=null;
     p.money=Math.min(C.MAX_MONEY,p.money+C.PLANT_MONEY); this.sendInv(p); this.send(p,{t:'money',add:C.PLANT_MONEY});
-    this.broadcast({t:'bomb',ev:'planted',site,name:p.name}); }
-  defuse(p){ this.bomb.s='defused'; this.broadcast({t:'bomb',ev:'defused',name:p.name}); this.endRound('CT','бомба обезврежена'); }
+    this.broadcast({t:'bomb',ev:'planted',site,name:p.name}); this.xp(p,GD.XP.bomb,'бомба заложена'); }
+  defuse(p){ this.xp(p,GD.XP.bomb,'бомба обезврежена'); this.bomb.s='defused'; this.broadcast({t:'bomb',ev:'defused',name:p.name}); this.endRound('CT','бомба обезврежена'); }
   explodeBomb(){ const b=this.bomb; b.s='exploded';
     this.broadcast({t:'boom',x:r2(b.x),y:0.3,z:r2(b.z),big:1});
     for(const p of this.players.values()){ if(!p.alive) continue; const d=Math.hypot(p.x-b.x,p.z-b.z);
@@ -181,6 +231,7 @@ class Room{
   endRound(winner,reason){
     if(this.phase!=='live') return;
     this.phase='post'; this.timer=C.POST_TIME; this.score[winner]++;
+    for(const q of this.players.values()) if(q.team===winner) this.xp(q,GD.XP.round,'победа в раунде');
     const loser=winner==='CT'?'T':'CT';
     const lossMoney=C.LOSS_MONEY+C.LOSS_STEP*Math.min(this.lossStreak[loser],4);
     this.lossStreak[loser]++; this.lossStreak[winner]=0;
@@ -268,6 +319,11 @@ class Room{
         else if(it==='armor') inv.armor=100; else if(it==='kit') inv.kit=true; else if(it==='drone') inv.drone=1; else if(it==='trap') inv.trap=1; else inv.nades[it]++;
         this.sendInv(p); return; }
       case 'use': p.using=!!m.on; return;
+      case 'pick':{ const pr=p.prof; if(!pr||!Array.isArray(pr.pending)||!pr.pending.includes(m.skin)) return;
+        pr.skins.push(m.skin); pr.pending=null; profDirty=true; this.send(p,Object.assign({t:'profile'},publicProfile(pr))); return; }
+      case 'equip':{ const own=p.prof?p.prof.skins:['standard'], knives=p.prof?p.prof.knives:['bayonet'], eq={};
+        if(m.skins&&typeof m.skins==='object') for(let w=0;w<15;w++){ const s=m.skins[w]; if(typeof s==='string'&&own.includes(s)) eq[w]=s; }
+        p.equip=eq; const kn=m.knife||{}; p.knifeSkin=typeof kn.skin==='string'&&own.includes(kn.skin)?kn.skin:'standard'; p.knifeType=knives.includes(kn.type)?kn.type:'bayonet'; return; }
       case 'chat':{ if(now-p.lastChat<700) return; const text=GD.cleanChat(m.text); if(!text) return; p.lastChat=now;
         const teamOnly=!!m.team&&this.mode!=='ffa', o={t:'chat',id:p.id,name:p.name,team:p.team,text,teamOnly,dead:!p.alive};
         if(teamOnly){ for(const q of this.players.values()) if(q.team===p.team) this.send(q,o); } else this.broadcast(o); return; }
@@ -377,7 +433,7 @@ class Room{
       if(d>1.6){ const st=Math.min(d-1.6,6.8*dt); const q={x:h.x+dx/d*st,z:h.z+dz/d*st}; GD.collide(q,0.35,this.solids);
         for(const o of this.hostages) if(o!==h&&o.state!==2){ const ex=q.x-o.x, ez=q.z-o.z, e=Math.hypot(ex,ez); if(e<0.7&&e>0.001){ q.x=o.x+ex/e*0.7; q.z=o.z+ez/e*0.7; } }
         h.x=q.x; h.z=q.z; if(d>9){ h.x=f.x-dx/d*1.6; h.z=f.z-dz/d*1.6; } }
-      if(R&&Math.hypot(h.x-R.x,h.z-R.z)<R.r){ h.state=2; f.money=Math.min(C.MAX_MONEY,f.money+C.RESCUE_MONEY); this.sendInv(f); this.send(f,{t:'money',add:C.RESCUE_MONEY});
+      if(R&&Math.hypot(h.x-R.x,h.z-R.z)<R.r){ h.state=2; this.xp(f,GD.XP.rescue,'спасение заложника'); f.money=Math.min(C.MAX_MONEY,f.money+C.RESCUE_MONEY); this.sendInv(f); this.send(f,{t:'money',add:C.RESCUE_MONEY});
         const left=this.hostages.filter(o=>o.state!==2).length; this.broadcast({t:'hostage',ev:'rescued',name:f.name,left}); } }
     const ctA=this.aliveCount('CT'), tA=this.aliveCount('T');
     if(this.hostages.length&&this.hostages.every(h=>h.state===2)) return this.endRound('CT','все заложники спасены');
@@ -403,6 +459,7 @@ class Room{
     let leader=null; for(const p of this.players.values()) if(!leader||p.kills>leader.kills) leader=p;
     if(leader&&(leader.kills>=C.FFA_KILLS||this.timer<=0)){
       this.phase='matchend'; this.timer=C.VOTE_TIME; this.startVote();
+      for(const q of this.players.values()){ if(q.prof){ q.prof.matches++; if(q===leader) q.prof.wins++; } this.xp(q,GD.XP.play+(q===leader?GD.XP.match:0),q===leader?'победа в бою':'бой сыгран'); }
       this.broadcast({t:'round',title:'Бой окончен',sub:'Победил '+leader.name+' — '+leader.kills+' убийств',end:1}); }
   }
   tickBomb(dt){
@@ -418,6 +475,7 @@ class Room{
         this.timer-=dt;
         if(this.timer<=0){
           if(this.matchOver){ this.phase='matchend'; this.timer=C.VOTE_TIME; this.startVote(); const w=this.score.CT>this.score.T?'CT':'T';
+            for(const q of this.players.values()){ if(q.prof){ q.prof.matches++; if(q.team===w) q.prof.wins++; } this.xp(q,GD.XP.play+(q.team===w?GD.XP.match:0),q.team===w?'победа в матче':'матч сыгран'); }
             for(const p of this.players.values()) this.send(p,{t:'round',title:p.team===w?'Победа в матче!':'Матч проигран',sub:'Спецназ '+this.score.CT+' : '+this.score.T+' Террористы',end:1}); }
           else this.startRound(); }
         return;
@@ -444,7 +502,7 @@ class Room{
   }
   snapshot(){
     const ps=[]; for(const p of this.players.values())
-      ps.push([p.id,r2(p.x),r2(p.y),r2(p.z),r3(p.yaw),r3(p.pitch),Math.max(0,Math.round(p.hp)),p.alive?1:0,p.team,p.w,r2(p.useP),p.name,p.kills,p.deaths,r2(p.dropP)]);
+      ps.push([p.id,r2(p.x),r2(p.y),r2(p.z),r3(p.yaw),r3(p.pitch),Math.max(0,Math.round(p.hp)),p.alive?1:0,p.team,p.w,r2(p.useP),p.name,p.kills,p.deaths,r2(p.dropP),p.prof?p.prof.level:0,Math.max(0,GD.SKIN_IDS.indexOf(p.w===3?p.knifeSkin:p.w===14?'gold':(p.equip[p.w]||'standard')))]);
     const b=this.bomb;
     this.broadcast({t:'snap',ps,b:{s:b.s,x:r2(b.x),z:r2(b.z),tm:r2(b.timer),site:b.site,c:b.carrier},
       r:{ph:this.phase,tm:r2(this.timer),n:this.round,ct:this.score.CT,tt:this.score.T,mode:this.mode,buy:r2(Math.max(0,(this.buyUntil-Date.now())/1000))},
@@ -467,7 +525,9 @@ wss.on('connection',ws=>{
         if(mode==='hostage') map='embassy'; else if(mode!=='ffa'&&!MAPS[map].sites) map='port';
         r=new Room(code,mode,map); rooms.set(code,r); }
       if(r.players.size>=r.max){ ws.send(JSON.stringify({t:'error',text:'Комната «'+code+'» заполнена'})); return; }
-      room=r; p=r.add(ws,cleanName(m.name),m.team); return; }
+      const name=cleanName(m.name), prof=profileFor(name,m.token);
+      if(!prof){ ws.send(JSON.stringify({t:'error',text:'Ник «'+name+'» уже занят другим игроком. Выбери другой ник.'})); return; }
+      room=r; p=r.add(ws,name,m.team,prof.guest?null:prof); return; }
     if(p&&room) room.handle(p,m);
   });
   ws.on('close',()=>{ if(p&&room) room.remove(p); p=null; });
@@ -477,4 +537,4 @@ setInterval(()=>{ for(const ws of wss.clients){ if(!ws.isAlive){ ws.terminate();
 let lastT=Date.now();
 setInterval(()=>{ const now=Date.now(), dt=Math.min(0.1,(now-lastT)/1000); lastT=now; for(const r of rooms.values()) r.tick(dt); },1000/30);
 
-server.listen(PORT,()=>console.log('Пыльный рубеж онлайн: http://localhost:'+PORT));
+loadProfiles().then(()=>server.listen(PORT,()=>console.log('Пыльный рубеж онлайн: http://localhost:'+PORT+(useUpstash?' · профили в Upstash':' · профили в файле')))).catch(e=>{ console.error(e.message); process.exit(1); });
